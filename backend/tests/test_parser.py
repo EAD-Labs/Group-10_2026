@@ -98,15 +98,30 @@ def test_tamil_was_delivered_rushed():
 
 
 def test_tamil_does_not_fit_at_a_natural_pace():
-    """Spoken at the English reference pace the Tamil text needs far more time
-    than the video gives it. This is the gap the fitting engine must close."""
+    """Spoken at the English articulation rate the Tamil text needs more time
+    than the video gives it. This is the gap the fitting engine must close.
+
+    Budget here is the speaking budget - the window minus the reserved pause -
+    so these numbers are what a translation must actually hit."""
     script = tamil()
     fit = fit_track(script, None, "ta", RateModel())
 
-    assert round(fit.total_predicted) == 770
-    assert round(fit.total_budget, 1) == 561.2
-    assert fit.total_predicted / fit.total_budget > 1.35
-    assert len(fit.over_budget) == 83
+    assert round(fit.total_predicted) == 591
+    assert round(fit.total_budget, 1) == 523.2
+    assert 1.10 < fit.total_predicted / fit.total_budget < 1.20
+    assert len(fit.over_budget) == 63
+
+
+def test_english_script_is_not_flagged_as_broken():
+    """Regression guard on false alarms.
+
+    The English script was recorded and delivered at exactly these timings, so
+    a model that flags a large share of it is wrong about the model, not the
+    script. The Step 0 model flagged 42 of 95; measuring real articulation and
+    reserving the pause brought that down to 11."""
+    fit = fit_track(english(), None, "en", RateModel())
+    assert len(fit.over_budget) <= 15
+    assert fit.total_predicted < fit.total_budget
 
 
 def test_sentence_rules_apply_to_sentences_not_rows():

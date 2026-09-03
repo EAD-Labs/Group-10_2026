@@ -1,4 +1,4 @@
-# Module 1 - Script Ingestion & Parsing
+# Modules 1 & 4a - Script Parsing and Audio Measurement
 
 Turns a Spoken Tutorial timed script into segments, action cues and per-segment
 time budgets, validated against the Dubbers' Checklist.
@@ -66,11 +66,58 @@ text rather than in the speaking rate.
 `DEFAULT_RATES` deliberately targets every language at the English reference
 pace: the project's whole premise is that the text absorbs the expansion.
 
+## Step 1 - measuring the real audio
+
+The model above predicts from the script alone. `app/media` and
+`app/duration/measure.py` check it against the recordings the client supplied.
+
+Voice-activity detection, not forced alignment: Step 0 already tells us where
+each segment's window is, so what is missing is only *where inside that window
+the speech stops*. Energy VAD needs no model download and behaves the same on
+Tamil as on English. Word-level alignment is a separate job, needed later to
+measure drift on generated audio.
+
+```bash
+python -m app.calibrate --script ../Timed-script-sample-english.docx                         --video  ../Overview-of-Synfig-English.webm --language en
+```
+
+Measured on the Synfig pair, embedded-clip windows excluded:
+
+| | English | Tamil |
+|---|---|---|
+| articulation rate (aggregate) | 3.91 syl/s | **4.85 syl/s** |
+| median trailing pause | 0.41 s | **0.00 s** |
+| segments with no pause at all | 25 / 84 | **50 / 84** |
+| share of window actually spoken | 73.2% | 84.4% |
+
+Two separate things were done to make Tamil fit: it is spoken **24% faster**,
+*and* **59 seconds of pause were deleted**. Neither is visible in the script -
+both are audible.
+
+This changed the model in two ways. The reference rate became an articulation
+rate (3.91, measured on speech) rather than a syllables-per-window figure
+(3.00, which silently averaged in the pauses). And `PAUSE_RESERVE` now withholds
+0.40 s per segment before the translator sees the budget - fixed rather than
+proportional, because trailing pause correlates with window length at r = 0.06.
+
+The payoff is fewer false alarms. Scored against the English script - which was
+recorded and delivered at exactly these timings, so anything flagged is a model
+error - the Step 0 model called 42 of 95 segments over budget. The Step 1 model
+calls 11.
+
+It also revised the headline gap downwards: Tamil needs **13% more speaking
+time than exists**, not the 37% the script-only model implied. Rephrasing can
+close 13%.
+
 ## Known limitations
 
 - Bare numerals (`16.04`, `0`) are not counted as syllables - how they are
   spoken is language-specific. Needs a spoken-form expansion once the client
   confirms the convention.
 - Rates are calibrated from one script pair. Recalibrate as more arrive.
+- Numerals are the largest remaining error source: "Synfig version 1.0.2" counts
+  as 4 syllables but takes 3.4 s to say. Needs spoken-form expansion per language.
+- Prediction error is MAE 0.63 s (down from 1.11 s), still short of the 250 ms
+  drift criterion - which is measured post-synthesis by alignment, not by this.
 - Only the `Time | Narration` timed-script format is handled. The wiki
   `Visual Cue | Narration` format is a separate reader.

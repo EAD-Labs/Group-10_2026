@@ -14,3 +14,7 @@ out/
 
 # Client media - large, and not ours to redistribute
 *.webm
+
+# Local virtualenv and intermediate audio
+etenv/
+work/

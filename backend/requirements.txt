@@ -2,3 +2,8 @@ pydantic>=2.9
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pytest>=8.0
+
+# Step 1 - audio measurement
+numpy>=1.26
+soundfile>=0.12
+imageio-ffmpeg>=0.5      # ships an ffmpeg binary; no system install needed

@@ -17,19 +17,35 @@ from dataclasses import dataclass, field
 from ..schemas import ParsedScript, Segment
 from .syllables import count_syllables
 
-# Measured on the Synfig "Overview and Installation" pair supplied by the
-# client. English is the reference pace; the Tamil figure is what the dubbing
-# artist was actually forced into, NOT a target.
-MEASURED_ENGLISH_RATE = 3.00
-MEASURED_TAMIL_RUSHED_RATE = 3.88
+# Measured by voice-activity analysis of the audio the client supplied for the
+# Synfig "Overview and Installation" pair (app/duration/measure.py). These are
+# articulation rates - syllables per second of ACTUAL SPEECH, with silence
+# excluded - not syllables per second of script window.
+MEASURED_ENGLISH_ARTICULATION = 3.91
+MEASURED_TAMIL_ARTICULATION = 4.85
+"""The Tamil figure is what the dubbing artist was forced into: 24% faster than
+the English it has to fit inside. It is evidence, never a target."""
+
+ENGLISH_PAUSE_MEDIAN = 0.41
+"""Seconds of silence the English narrator leaves at the end of a segment."""
+
+PAUSE_RESERVE = 0.40
+"""Seconds withheld from every segment's budget for the pause after it.
+
+Measured as a fixed quantity, not a proportion: across the English track the
+trailing pause correlates with window length at r = 0.06, sitting near 0.4 s
+whether the window is 4 s or 12 s. The client's dubbing instructions require
+"an appropriate pause between sentences", so this is reserved before the
+translator ever sees the budget - otherwise a translation that exactly fills
+its window leaves nowhere to put the pause."""
 
 DEFAULT_RATES = {
-    "en": MEASURED_ENGLISH_RATE,
-    "ta": MEASURED_ENGLISH_RATE,
-    "hi": MEASURED_ENGLISH_RATE,
-    "mr": MEASURED_ENGLISH_RATE,
+    "en": MEASURED_ENGLISH_ARTICULATION,
+    "ta": MEASURED_ENGLISH_ARTICULATION,
+    "hi": MEASURED_ENGLISH_ARTICULATION,
+    "mr": MEASURED_ENGLISH_ARTICULATION,
 }
-"""Target rates. Every language is aimed at the English reference pace on
+"""Target rates. Every language is aimed at the English articulation rate on
 purpose: the point of the project is that the TEXT absorbs the expansion, not
 the speaking rate."""
 
@@ -44,13 +60,23 @@ RATE_TOLERANCE = 0.10
 class RateModel:
     rates: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_RATES))
     reference_language: str = "en"
+    pause_reserve: float = PAUSE_RESERVE
 
     def rate(self, language: str) -> float:
         return self.rates.get(language, self.rates[self.reference_language])
 
     def estimate(self, text: str, language: str) -> float:
-        """Predicted spoken duration in seconds."""
+        """Predicted duration of the speech itself, excluding the pause after it."""
         return count_syllables(text) / self.rate(language)
+
+    def speaking_budget(self, segment: Segment) -> float:
+        """What the narration may occupy once the trailing pause is withheld.
+
+        This is the number the fitting engine must target. Aiming at the full
+        window produces a track where every line technically fits and nothing
+        has room to breathe - which is the complaint the project exists to fix.
+        """
+        return max(segment.narration_budget - self.pause_reserve, 0.0)
 
 
 @dataclass
@@ -127,7 +153,7 @@ def calibrate_from_script(script: ParsedScript) -> float:
 def fit_segment(segment: Segment, text: str, language: str, model: RateModel) -> SegmentFit:
     return SegmentFit(
         segment_id=segment.id,
-        budget=segment.narration_budget,
+        budget=model.speaking_budget(segment),
         predicted=model.estimate(text, language),
         syllables=count_syllables(text),
     )
