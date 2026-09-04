@@ -1,4 +1,6 @@
-# Module 1 - Script Ingestion & Parsing
+# Backend - script to export
+
+## Module 1 - Script Ingestion & Parsing
 
 Turns a Spoken Tutorial timed script into segments, action cues and per-segment
 time budgets, validated against the Dubbers' Checklist.
@@ -10,10 +12,17 @@ cd backend
 python -m app.cli "../Timed-script-sample-english.docx" --language en --duration 663.2
 python -m app.cli "../Tamil-script-sample.docx" --language ta --duration 663.2
 python tests/test_parser.py        # or: pytest tests
+python tests/test_pipeline.py
+python tests/test_media.py         # skips if the client videos are absent
 ```
 
 `--duration` is the length of the base video. It sets the last segment's budget;
-without it the parser assumes the script's median window.
+without it the parser assumes the script's median window. Better, pass the video
+itself and let the duration be read from the container:
+
+```bash
+python -m app.cli "../Timed-script-sample-english.docx" --language en \n    --video ../Overview-of-Synfig-English.webm
+```
 
 ## What it does that a naive parser does not
 
@@ -74,3 +83,99 @@ pace: the project's whole premise is that the text absorbs the expansion.
 - Rates are calibrated from one script pair. Recalibrate as more arrive.
 - Only the `Time | Narration` timed-script format is handled. The wiki
   `Visual Cue | Narration` format is a separate reader.
+
+---
+
+## The pipeline
+
+`parse -> translate -> synthesise -> align -> timeline -> QA -> export`, running
+end to end today with the hard stages faked:
+
+```bash
+python -m app.run "../Timed-script-sample-english.docx" --language en --duration 663.2 --out ../out
+python -m app.run "../Tamil-script-sample.docx" --language ta --duration 663.2 --out ../out
+```
+
+That writes 95 WAV clips, an SRT and a project manifest per language, and
+prints the QA report. Every run names the stubs still in the chain, so no demo
+leaves anyone unsure which numbers are real.
+
+### Why stubs first
+
+Built module by module, the 24 September MVP arrives as four polished stages
+and nothing to show. So the chain runs from day one with the intelligence
+faked, and each fake is replaced behind its interface:
+
+| stage | today | replaced by |
+|---|---|---|
+| translate | `EchoTranslator` - text unchanged | Module 2, duration-constrained LLM translation |
+| synthesise | `SilentTTS` - silence of exactly the predicted length | Piper locally, then Sarvam AI |
+| align | `ClipBoundsAligner` - the clip's own bounds | WhisperX / MFA on real audio |
+| timeline | anchor at each segment start | hold insertion at non-action gaps |
+| export | SRT (real) + JSON manifest | OpenTimelineIO / Kdenlive XML |
+
+The interfaces are in `app/pipeline/interfaces.py` and every provider is
+resolved by name through `app/pipeline/registry.py` - so switching provider is
+configuration, not code (HLD UC-07), and the team works in parallel against
+fixed shapes.
+
+### What the stub run already tells you
+
+The echo run reproduces Module 1's analysis exactly - 42 of 95 English
+segments over budget, 83 of 95 Tamil, 536 s against 770 s of audio - which is
+the point: it is a baseline known to be right, so a real translator's
+improvement is measurable rather than asserted.
+
+The English SRT shows subtitles overlapping wherever a segment overruns its
+window. That is honest: it is what the timed script asks for and nothing has
+fitted the text yet.
+
+### Not done here
+
+- Holds are not inserted; `hold_after` is always 0.
+- Drift is `actual - budget`, not drift against the base video. It becomes the
+  real thing when forced alignment lands.
+- No API and no UI yet - the runner is a library plus a CLI, with a progress
+  hook (`ProgressHook`) shaped for the job-progress endpoint.
+
+---
+
+## Reading the base video
+
+`app/media/probe.py` reads a WebM/Matroska duration straight from the
+container - no ffmpeg, a few dozen lines of stdlib. Pass `--video` to any CLI
+instead of `--duration` and the number under every budget comes from the file
+rather than from someone's memory.
+
+What that established on the client's Synfig pair:
+
+| | |
+|---|---|
+| English video | **663.198 s** |
+| Tamil video | **663.268 s** |
+| the `663.2` used everywhere before | correct, to the tenth |
+| the two tracks | 70 ms apart - one base video, reused, exactly as the client describes |
+| the 11 action cues | all anchored inside the video |
+
+The videos are gitignored (large, and not ours to redistribute), so
+`tests/test_media.py` skips rather than fails when they are absent.
+
+### Validating a track by eye
+
+The strongest check available on the pipeline needs no toolchain at all:
+
+```bash
+python -m app.run "../Timed-script-sample-english.docx" --language en \
+    --video ../Overview-of-Synfig-English.webm --out ../out
+```
+
+Open the .webm in VLC and drop `out/en/en.srt` onto it. Each subtitle should
+appear as the narrator says those words. If they track the narration, then
+segment boundaries, timestamps and timeline placement are all correct - parse,
+timeline and export validated in one pass. Subtitles drifting steadily later
+would mean a segment-indexing bug; a subtitle sitting over an embedded clip
+would mean cue rows are being read as narration.
+
+Two caveats worth stating at a demo: the audio is silence and the aligner
+reads clip bounds, so the drift figure measures the script against itself, not
+narration against video. That number becomes real when forced alignment lands.
