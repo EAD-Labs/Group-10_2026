@@ -31,11 +31,15 @@ from ..schemas import (
 class Translator(Protocol):
     """Renders one segment into a target language under its time budget.
 
-    The budget is segment.narration_budget - not raw_budget - because a window
-    with an action cue in it is mostly already spoken for.  A real translator
-    predicts the spoken duration of each candidate with `model` and rephrases
-    until it fits or the cap is hit; it must set `fitted=False` rather than
-    return something too long silently.
+    The budget is `model.speaking_budget(segment)`, which is narrower than the
+    segment's window twice over: an action cue in the window means an embedded
+    clip is already using it (Step 0), and the tail of what remains belongs to
+    the pause the narrator must leave (Step 1). Targeting the raw window
+    produces a track where every line fits and none of them breathe.
+
+    A real translator predicts the spoken duration of each candidate with
+    `model` and rephrases until it fits or the cap is hit; it must set
+    `fitted=False` rather than return something too long silently.
     """
 
     name: str
@@ -66,9 +70,14 @@ class TTSProvider(Protocol):
 class Aligner(Protocol):
     """Locates the speech inside a synthesised clip.
 
-    Replaced in Step 1 by WhisperX / MFA against real audio; the stub reads the
-    file's own boundaries. Everything downstream consumes AlignmentResult, so
-    that swap costs nothing outside this package.
+    Two implementations are registered. `clip-bounds` is the stub, and is
+    right only for SilentTTS, whose clips are speech-shaped by construction.
+    `vad` is real: it is Step 1's own detector, the same code that measured the
+    client's delivered recordings, so a generated track and the client's
+    baseline are measured on equal terms.
+
+    Word-level alignment (WhisperX / MFA) is a third implementation and lands
+    behind this same Protocol when per-word drift is needed.
     """
 
     name: str

@@ -32,12 +32,19 @@ def build_timeline(
         if asset is None:
             continue
         alignment = aligned.get(segment.id)
+        # Place the SPEECH at the segment's timestamp, not the file. A
+        # synthesised clip opens with a fraction of a second of silence before
+        # the first word; anchoring on the file start would put every clip
+        # early by that much, and "that much" is the whole 250 ms budget. The
+        # offset is what the editor trims, so it is carried on the item.
+        lead_in = alignment.speech_start if alignment else 0.0
         length = alignment.speech_duration if alignment else asset.duration
         items.append(
             TimelineItem(
                 segment_id=segment.id,
                 start=segment.start,
                 end=segment.start + length,
+                audio_offset=lead_in,
                 audio_path=asset.path,
                 hold_after=0.0,  # Step 3
                 # A cue in this window means an embedded clip is already using

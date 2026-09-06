@@ -8,7 +8,9 @@ where predicted duration should equal the reference track's own.
 It still does the honest bookkeeping - syllable count, predicted duration,
 budget, and whether that fits - so the QA report is meaningful today and the
 'unfittable segment' escalation path is exercised before a real translator
-ever runs.
+ever runs. Budgets and durations both come from the Step 1 model, measured
+from the client's own recordings, so the stub's numbers are comparable with
+what a real translator will be scored against.
 """
 
 from __future__ import annotations
@@ -28,7 +30,11 @@ class EchoTranslator:
     ) -> TranslatedSegment:
         text = segment.text
         predicted = model.estimate(text, target_language)
-        budget = segment.narration_budget
+        # Step 1's budget, not the raw window: the window includes the pause
+        # the narrator has to leave at the end of the line, and handing that
+        # to the translator as speaking time is what produced a track where
+        # every segment "fits" and nothing has room to breathe.
+        budget = model.speaking_budget(segment)
         return TranslatedSegment(
             segment_id=segment.id,
             language=target_language,
@@ -39,8 +45,9 @@ class EchoTranslator:
             budget=budget,
             attempts=1,
             # A stub cannot rephrase, so anything over budget is reported as
-            # unfitted rather than quietly passed on. On the Tamil script this
-            # flags 83 of 95 segments - which is the problem, stated.
+            # unfitted rather than quietly passed on. Against the measured
+            # articulation rate this flags 63 of 95 Tamil segments - which is
+            # the problem, stated.
             fitted=predicted - budget <= DRIFT_TOLERANCE,
             translator=self.name,
         )

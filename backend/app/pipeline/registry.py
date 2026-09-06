@@ -12,6 +12,7 @@ that still runs is what keeps the pipeline demoable on any machine.
 from __future__ import annotations
 
 from ..align.stub import ClipBoundsAligner
+from ..align.vad import VadAligner
 from ..export.manifest import ManifestExporter
 from ..export.subtitles import SrtExporter
 from ..translate.echo import EchoTranslator
@@ -27,7 +28,11 @@ TTS_PROVIDERS: dict[str, type] = {
 }
 
 ALIGNERS: dict[str, type] = {
+    # The stub, paired with SilentTTS: a silent clip has no speech to find.
     "clip-bounds": ClipBoundsAligner,
+    # Real, and already built - Step 1's detector, the same one the client's
+    # delivered audio was measured with. Use it with a real TTS provider.
+    "vad": VadAligner,
 }
 
 EXPORTERS: dict[str, type] = {

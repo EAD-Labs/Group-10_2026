@@ -7,19 +7,22 @@ rather than eyeballed:
   * mean speaking rate within +/-10% of the reference pace, and no segment
     beyond +/-15%  (RATE_TOLERANCE)
 
-Drift here is `actual - budget`: how far the synthesised narration runs past
-the window the timed script gave it. It is reported signed, because the
-negative case is useful - that is the slack Step 3 turns into holds - but only
-overrun counts as a sync failure. Once real audio and a real aligner are in
-place (Step 1), this becomes drift against the base video's action cues, which
-is the figure the client's editors care about. The definition tightens; the
-report's shape does not.
+Drift here is `actual - budget`, where budget is the SPEAKING budget from
+Step 1 - the window less the pause the narrator must leave. Positive drift
+therefore means the narration has started eating its own pause, not merely
+that it approached the next line.
+
+Drift alone is not enough, which is the lesson of the client's Tamil track:
+every one of its segments lands inside its window, and it still sounds rushed,
+because the pauses were spent to get there. So each row also reports
+`pause_after`, and a segment is only `unrushed` when it fits AND leaves an
+audible gap.
 """
 
 from __future__ import annotations
 
 from ..duration.model import DRIFT_TOLERANCE, RateModel
-from ..schemas import (
+from ..schemas import (  # noqa: F401
     AlignmentResult,
     AudioAsset,
     ParsedScript,
@@ -60,6 +63,9 @@ def build_qa_report(
 
         budget = translated.budget
         drift = actual - budget
+        # Measured against the whole window, not against the speaking budget:
+        # this is the silence a listener actually gets before the next line.
+        pause_after = max(segment.narration_budget - actual, 0.0)
         # Rate is measured against the speech that was actually produced, not
         # against the prediction - a stub that lies about its own length would
         # otherwise report a perfect ratio.
@@ -72,8 +78,8 @@ def build_qa_report(
                 predicted=translated.predicted_duration,
                 actual=actual,
                 drift=drift,
+                pause_after=pause_after,
                 rate_ratio=rate_ratio,
-                over_budget=drift > DRIFT_TOLERANCE,
                 # Only overrun breaks sync. Every clip is anchored at its own
                 # start time, so narration that finishes early leaves silence
                 # before the next anchor - a gap for Step 3 to fill with a

@@ -1,4 +1,4 @@
-# Modules 1 & 4a - Script Parsing and Audio Measurement
+# Spoken Tutorial Generator - backend
 
 Turns a Spoken Tutorial timed script into segments, action cues and per-segment
 time budgets, validated against the Dubbers' Checklist.
@@ -115,6 +115,55 @@ calls 11.
 It also revised the headline gap downwards: Tamil needs **13% more speaking
 time than exists**, not the 37% the script-only model implied. Rephrasing can
 close 13%.
+
+## Step 2 - the pipeline, end to end
+
+```bash
+python -m app.run ../Tamil-script-sample.docx --language ta --duration 663.2
+```
+
+`parse -> translate -> synthesise -> align -> timeline -> QA -> export`, running
+today with the hard stages stubbed. Every stage sits behind a Protocol in
+`app/pipeline/interfaces.py` and is chosen by name from `app/pipeline/registry.py`,
+so replacing a stub is a config change (HLD UC-07), and `run_segments` re-runs a
+single segment without a full re-render (UC-03).
+
+| stage | today | replaced by |
+|---|---|---|
+| translate | `echo` (stub, passes text through) | Module 2 + an LLM |
+| synthesise | `silent` (stub, silence of predicted length) | Piper, then Sarvam |
+| align | `clip-bounds` (stub) / **`vad` (real)** | word-level WhisperX / MFA |
+| export | **`srt` (real)**, `manifest` (stand-in) | OpenTimelineIO / Kdenlive XML |
+
+Every run prints which stages were stubbed, so no demo can mistake a stub's
+arithmetic for real audio.
+
+### The budget the pipeline actually targets
+
+Step 2 was first written against the Step 0 model and has been rebased onto
+Step 1's. The translator is handed `RateModel.speaking_budget(segment)`, which
+is narrower than the segment's window twice over - an action cue means an
+embedded clip already owns part of it, and the tail belongs to the pause the
+narrator has to leave. Targeting the raw window yields a track where every line
+fits and none of them breathe, which is the delivery the client complained
+about.
+
+The QA report therefore carries `pause_after` beside `drift`, and a segment is
+`unrushed` only if it fits *and* leaves an audible gap. Scored against the
+client's own delivered Tamil text:
+
+| | English | Tamil |
+|---|---|---|
+| segments over budget | 11 / 95 | **63 / 95** |
+| median pause left | 1.16 s | **0.00 s** |
+
+Predicted from the text alone, that reproduces what Step 1 measured in the
+audio - a 0.00 s median pause, most segments with no gap at all. Two
+independent routes to the same answer.
+
+Alignment uses the same detector Step 1 measured the client's recordings with
+(`app/media/vad.py`), so a generated track and the client's baseline are
+compared on equal terms rather than by two implementations that could disagree.
 
 ## Known limitations
 

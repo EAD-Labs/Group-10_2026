@@ -19,9 +19,17 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 Severity = Literal["error", "warning"]
+
+NO_PERCEPTIBLE_PAUSE = 0.15
+"""Seconds. Below this there is no audible gap before the next line starts.
+
+Lives here rather than in one consumer because two stages must agree on it:
+app/duration/measure.py counts it on delivered recordings, and the QA report
+counts it on generated ones. The Tamil track the client supplied has 50 of 84
+segments under this threshold - which is what "rushed" sounds like."""
 
 
 class Violation(BaseModel):
@@ -144,7 +152,8 @@ class TranslatedSegment(BaseModel):
     """What the rate model thinks this text takes to say."""
 
     budget: float = 0.0
-    """The segment's narration_budget - the number this text has to fit."""
+    """The segment's SPEAKING budget: its window less the pause reserved at the
+    end (RateModel.speaking_budget). Not the raw window - see Step 1."""
 
     attempts: int = 1
     """Rephrasing rounds the translator needed. 1 means it fit first time."""
@@ -200,6 +209,12 @@ class TimelineItem(BaseModel):
 
     end: float
     audio_path: str
+
+    audio_offset: float = 0.0
+    """Seconds to skip at the head of the clip: its lead-in silence, found by
+    the aligner. The clip's speech is what lands at `start`, so an editor
+    importing the project trims this much off the front."""
+
     hold_after: float = 0.0
     """Seconds of video hold inserted after this clip. Only ever non-zero at a
     non-action gap (HLD S13.1)."""
@@ -212,16 +227,37 @@ class TimelineItem(BaseModel):
 class SegmentQA(BaseModel):
     segment_id: str
     budget: float
+    """The speaking budget: window minus the reserved pause."""
+
     predicted: float
     actual: float
     drift: float
-    """actual - budget. Positive means the narration runs past its window."""
+    """actual - budget. Positive means the narration ate into its own pause."""
+
+    pause_after: float = 0.0
+    """Silence left in the window once the narration finishes.
+
+    The measure that matters to a listener, and the one Step 1 showed the
+    client's Tamil dub had lost: drift can be comfortably inside tolerance on
+    every segment while the pauses have all been squeezed to nothing."""
 
     rate_ratio: float
     """Delivered pace over the reference pace. 1.0 is the target."""
 
-    over_budget: bool = False
     within_drift: bool = True
+
+    @computed_field
+    @property
+    def over_budget(self) -> bool:
+        """Derived, not stored: this and within_drift are the same fact, and
+        two fields carrying one fact eventually disagree."""
+        return not self.within_drift
+
+    @computed_field
+    @property
+    def unrushed(self) -> bool:
+        """Fits its budget AND still leaves an audible gap after it."""
+        return self.within_drift and self.pause_after >= NO_PERCEPTIBLE_PAUSE
 
 
 class QAReport(BaseModel):
@@ -254,6 +290,24 @@ class QAReport(BaseModel):
     @property
     def over_budget_count(self) -> int:
         return sum(1 for s in self.segments if s.over_budget)
+
+    @property
+    def segments_without_pause(self) -> int:
+        """Segments that leave no audible gap before the next line.
+
+        The direct analogue of the Step 1 measurement on the client's delivered
+        audio, so a generated track can be compared against it on equal terms."""
+        return sum(1 for s in self.segments if s.pause_after < NO_PERCEPTIBLE_PAUSE)
+
+    @property
+    def median_pause(self) -> float:
+        if not self.segments:
+            return 0.0
+        pauses = sorted(s.pause_after for s in self.segments)
+        middle = len(pauses) // 2
+        if len(pauses) % 2:
+            return pauses[middle]
+        return (pauses[middle - 1] + pauses[middle]) / 2
 
     @property
     def drift_failures(self) -> list[SegmentQA]:

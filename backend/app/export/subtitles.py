@@ -13,12 +13,16 @@ from ..schemas import LanguageTrack
 
 
 def _timestamp(seconds: float) -> str:
-    seconds = max(seconds, 0.0)
-    hours, rest = divmod(int(seconds), 3600)
-    minutes, secs = divmod(rest, 60)
-    millis = int(round((seconds - int(seconds)) * 1000))
-    if millis == 1000:  # rounding crossed a second boundary
-        millis, secs = 0, secs + 1
+    """Format as SRT's HH:MM:SS,mmm.
+
+    Rounded to whole milliseconds first, then split. Splitting first and
+    rounding after lets a value like 59.9996 round its milliseconds up to 1000
+    and render as ":60,000", which is not a time and which some players reject
+    the whole file over."""
+    total_ms = max(int(round(seconds * 1000)), 0)
+    hours, rest = divmod(total_ms, 3_600_000)
+    minutes, rest = divmod(rest, 60_000)
+    secs, millis = divmod(rest, 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 

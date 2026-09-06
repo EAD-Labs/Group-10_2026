@@ -16,7 +16,7 @@ import statistics
 from dataclasses import dataclass
 
 from ..media.vad import SpeechTrack
-from ..schemas import ParsedScript
+from ..schemas import NO_PERCEPTIBLE_PAUSE, ParsedScript
 
 
 @dataclass
@@ -68,8 +68,9 @@ class Calibration:
 MIN_SPEECH_FOR_RATE = 0.30
 """Segments with less speech than this are too short to estimate a rate from."""
 
-NO_PAUSE_THRESHOLD = 0.15
-"""Below this there is no perceptible gap before the next line begins."""
+NO_PAUSE_THRESHOLD = NO_PERCEPTIBLE_PAUSE
+"""Re-exported from schemas so the QA report on generated audio and the
+measurement of delivered audio cannot drift apart."""
 
 
 def measure_script(

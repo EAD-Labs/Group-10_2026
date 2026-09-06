@@ -13,7 +13,12 @@ import argparse
 import os
 import sys
 
-from .duration.model import DRIFT_TOLERANCE, RATE_TOLERANCE, RateModel
+from .duration.model import (
+    DRIFT_TOLERANCE,
+    ENGLISH_PAUSE_MEDIAN,
+    RATE_TOLERANCE,
+    RateModel,
+)
 from .media.probe import probe
 from .pipeline.registry import ALIGNERS, EXPORTERS, TRANSLATORS, TTS_PROVIDERS
 from .pipeline.runner import PipelineConfig, run_pipeline
@@ -78,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  worst overrun      : {qa.max_drift:.2f}s   (threshold {DRIFT_TOLERANCE:.2f}s)")
     print(f"  segments overrunning: {len(qa.drift_failures)} / {len(qa.segments)}")
     print(f"  longest silence     : {qa.largest_gap:.2f}s   (Step 3 turns these into holds)")
+    print(f"  median pause left  : {qa.median_pause:.2f}s   "
+          f"(reference: English delivery leaves {ENGLISH_PAUSE_MEDIAN:.2f}s)")
+    print(f"  segments w/o a pause: {qa.segments_without_pause} / {len(qa.segments)}  "
+          f"(the client's Tamil dub: 50 of 84)")
     print(f"  mean rate ratio    : {qa.mean_rate_ratio:.2f}   "
           f"(target 1.00 +/-{RATE_TOLERANCE:.0%})")
     print(f"  audio written      : {sum(a.duration for a in track.audio):.1f}s "

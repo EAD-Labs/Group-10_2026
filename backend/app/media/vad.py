@@ -31,6 +31,15 @@ loud-relative one is not, and the measured speech fraction moves less than two
 points across a +/-15 dB sweep of this constant.
 """
 
+ABSOLUTE_SILENCE_DB = -60.0
+"""A recording whose loud level is below this contains no speech at all.
+
+The threshold is defined relative to the file's own loud level, which is right
+for a real recording but degenerates on a file with no dynamic range: a clip of
+pure digital silence sits at -200 dB throughout, so a relative threshold falls
+to -230 dB and marks every frame as speech. Step 2's synthesis stub emits
+exactly such clips, so the relative rule needs an absolute floor under it."""
+
 FILL_GAP_MS = 200.0
 """Silences shorter than this are inside a word or between words, not a pause."""
 
@@ -113,6 +122,15 @@ def _smooth(mask: np.ndarray, frame_seconds: float) -> np.ndarray:
 
 def detect_speech(path: str, frame_seconds: float = FRAME_SECONDS) -> SpeechTrack:
     energy = frame_energy_db(path, frame_seconds)
-    threshold = float(np.percentile(energy, 90)) - THRESHOLD_BELOW_LOUD_DB
+    loud = float(np.percentile(energy, 90))
+
+    if loud < ABSOLUTE_SILENCE_DB:
+        return SpeechTrack(
+            mask=np.zeros(len(energy), dtype=bool),
+            frame_seconds=frame_seconds,
+            threshold_db=ABSOLUTE_SILENCE_DB,
+        )
+
+    threshold = loud - THRESHOLD_BELOW_LOUD_DB
     mask = _smooth(energy > threshold, frame_seconds)
     return SpeechTrack(mask=mask, frame_seconds=frame_seconds, threshold_db=threshold)

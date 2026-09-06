@@ -4,9 +4,9 @@ The point of Step 2 is that the chain runs and the seams hold, so these tests
 check plumbing and arithmetic, not narration quality - there is no narration
 yet. Two things they pin down that will matter when the stubs are replaced:
 
-  * the stub numbers agree with Module 1's own analysis (42 English segments
-    over budget, 83 Tamil), so a future translator's improvement is measured
-    against a baseline that is known to be right
+  * the stub numbers agree with the Step 1 duration model - the one calibrated
+    against the client's recordings - so a future translator's improvement is
+    measured against a baseline that is known to be right
   * a provider swap changes only what is written, never the shape of the track
 """
 
@@ -33,7 +33,18 @@ from app.pipeline.runner import (  # noqa: E402
     run_segments,
     run_track,
 )
-from app.schemas import QAReport, SegmentQA, TranslatedSegment  # noqa: E402
+from app.duration.model import RateModel  # noqa: E402
+from app.export.subtitles import _timestamp  # noqa: E402
+from app.media.vad import detect_speech  # noqa: E402
+from app.schemas import (  # noqa: E402
+    AlignmentResult,
+    AudioAsset,
+    QAReport,
+    SegmentQA,
+    TranslatedSegment,
+)
+from app.timeline.builder import build_timeline  # noqa: E402
+from app.tts.silent import write_silence  # noqa: E402
 
 MATERIALS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ENGLISH = os.path.join(MATERIALS, "Timed-script-sample-english.docx")
@@ -90,20 +101,125 @@ def test_silent_tts_writes_a_clip_of_the_predicted_length():
             assert abs(on_disk - asset.duration) < 1e-9
 
 
-def test_echo_translator_reproduces_module_1s_budget_analysis():
-    """The stub track must agree with the parser's own numbers. When a real
-    translator arrives, this is the baseline it has to beat."""
+def test_echo_translator_agrees_with_the_step_1_model():
+    """The stub track must agree with the calibrated duration model. When a
+    real translator arrives, this is the baseline it has to beat.
+
+    These numbers moved when Step 1 replaced the script-derived pace (3.00
+    syl/s, which had silently averaged the pauses in) with the measured
+    articulation rate (3.91) and began reserving the pause. They are lower and
+    they are right."""
     with tempfile.TemporaryDirectory() as out:
         _, english = _run(out_dir=out)
-        assert len(english.unfitted) == 42
+        assert len(english.unfitted) == 11
         assert english.qa is not None
-        assert len(english.qa.drift_failures) == 42
-        assert round(sum(a.duration for a in english.audio)) == 536
+        assert len(english.qa.drift_failures) == 11
+        assert round(sum(a.duration for a in english.audio)) == 411
 
     with tempfile.TemporaryDirectory() as out:
         _, tamil = _run(TAMIL, "ta", out_dir=out)
-        assert len(tamil.unfitted) == 83
-        assert round(sum(a.duration for a in tamil.audio)) == 770
+        assert len(tamil.unfitted) == 63
+        assert round(sum(a.duration for a in tamil.audio)) == 591
+
+
+def test_the_translator_is_not_given_the_pause_to_spend():
+    """Step 1's central finding, enforced.
+
+    A segment's window is speech plus the pause the narrator has to leave. The
+    translator must be handed the speech half only - otherwise it produces a
+    track where every line fits and none of them breathe, which is exactly the
+    delivery the client complained about."""
+    script = parse_script(ENGLISH, language="en", duration=VIDEO_DURATION)
+    model = RateModel()
+    translator = get_translator("echo")
+
+    for segment in script.segments[:20]:
+        result = translator.translate(segment, target_language="en", model=model)
+        assert result.budget == model.speaking_budget(segment)
+        if segment.narration_budget > model.pause_reserve:
+            assert result.budget < segment.narration_budget
+
+
+def test_qa_reports_the_pause_not_only_the_drift():
+    """The Tamil script is the case that proves drift alone is insufficient.
+
+    Run against the client's own delivered Tamil text, the report has to show
+    what Step 1 measured in their audio: the pauses are gone. A report that
+    only tracked drift would rate this track far more kindly than it sounds."""
+    with tempfile.TemporaryDirectory() as out:
+        _, tamil = _run(TAMIL, "ta", out_dir=out)
+    with tempfile.TemporaryDirectory() as out:
+        _, english = _run(out_dir=out)
+
+    assert tamil.qa.median_pause == 0.0
+    assert english.qa.median_pause > 0.5
+    assert tamil.qa.segments_without_pause > english.qa.segments_without_pause * 3
+
+    # Independent agreement: Step 1 measured a 0.00 s median pause in the
+    # delivered Tamil AUDIO; this predicts the same from the TEXT alone.
+    assert all(not s.unrushed for s in tamil.qa.segments if s.pause_after == 0.0)
+
+
+def test_over_budget_cannot_disagree_with_within_drift():
+    row = SegmentQA(
+        segment_id="S-001", budget=5.0, predicted=4.0, actual=4.0,
+        drift=-1.0, pause_after=1.4, rate_ratio=1.0, within_drift=True,
+    )
+    assert row.over_budget is False
+    assert row.unrushed is True
+    assert "over_budget" in row.model_dump()
+
+
+def test_timeline_trims_the_lead_in_silence():
+    """A generated clip opens with silence before the first word. The speech,
+    not the file, is what has to land on the segment's timestamp."""
+    script = parse_script(ENGLISH, language="en", duration=VIDEO_DURATION)
+    segment = script.segments[0]
+    asset = AudioAsset(
+        segment_id=segment.id, language="en", path="unused.wav", duration=4.0
+    )
+    alignment = AlignmentResult(
+        segment_id=segment.id, speech_start=0.3, speech_end=3.8, aligner="test"
+    )
+    item = build_timeline(script, [asset], [alignment])[0]
+
+    assert item.audio_offset == 0.3
+    assert item.start == segment.start
+    assert abs((item.end - item.start) - 3.5) < 1e-9
+
+
+def test_srt_timestamps_never_render_a_sixtieth_second():
+    assert _timestamp(59.9996) == "00:01:00,000"
+    assert _timestamp(119.9999) == "00:02:00,000"
+    assert _timestamp(3599.9999) == "01:00:00,000"
+    assert _timestamp(663.2) == "00:11:03,200"
+
+
+def test_the_vad_aligner_is_the_step_1_detector():
+    """Alignment and Step 1's measurement must answer 'where is the speech'
+    with the same code, or the QA report cannot be compared against what was
+    measured on the client's audio."""
+    audio = os.path.join(MATERIALS, "work", "audio", "synfig-English.wav")
+    if not os.path.exists(audio):
+        return  # client media absent on this machine
+
+    aligner = get_aligner("vad")
+    result = aligner.align(
+        AudioAsset(segment_id="S-001", language="en", path=audio, duration=663.2), ""
+    )
+    assert result.aligner == "vad"
+    assert 0.0 < result.speech_start < 5.0
+    assert result.speech_duration > 600.0
+
+
+def test_a_silent_clip_reports_no_speech_rather_than_all_speech():
+    """The threshold is relative to the file's own loud level, which inverts on
+    a file with no dynamic range. SilentTTS emits exactly such files."""
+    with tempfile.TemporaryDirectory() as out:
+        path = os.path.join(out, "silence.wav")
+        write_silence(path, 2.0)
+        track = detect_speech(path)
+        assert track.speech_seconds == 0.0
 
 
 def test_timeline_anchors_on_the_script_timestamps():
