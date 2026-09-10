@@ -11,6 +11,7 @@ import json
 import sys
 
 from .duration.model import RateModel, calibrate_from_script, fit_track
+from .media.probe import probe
 from .parsing.parser import parse_script
 
 
@@ -24,11 +25,17 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Length of the base video in seconds (sets the last segment's budget)",
     )
+    parser.add_argument(
+        "--video",
+        default=None,
+        help="Base video; its duration is read from the container (overrides --duration)",
+    )
     parser.add_argument("--json", dest="json_out", help="Write parsed segments to this file")
     parser.add_argument("--limit", type=int, default=12, help="Rows of detail to print")
     args = parser.parse_args(argv)
 
-    script = parse_script(args.script, language=args.language, duration=args.duration)
+    duration = probe(args.video).duration if args.video else args.duration
+    script = parse_script(args.script, language=args.language, duration=duration)
     fit = fit_track(script, None, args.language, RateModel())
     delivered = calibrate_from_script(script)
 
