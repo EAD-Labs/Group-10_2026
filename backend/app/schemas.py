@@ -115,14 +115,17 @@ class ParsedScript(BaseModel):
     def violations(self) -> list[Violation]:
         return [v for s in self.segments for v in s.violations]
 
+    @computed_field
     @property
     def error_count(self) -> int:
         return sum(1 for v in self.violations if v.severity == "error")
 
+    @computed_field
     @property
     def warning_count(self) -> int:
         return sum(1 for v in self.violations if v.severity == "warning")
 
+    @computed_field
     @property
     def narration_budget_total(self) -> float:
         return sum(s.narration_budget for s in self.segments)
@@ -267,6 +270,7 @@ class QAReport(BaseModel):
     segments: list[SegmentQA] = Field(default_factory=list)
     reference_rate: float = 0.0
 
+    @computed_field
     @property
     def max_drift(self) -> float:
         """The worst overrun: how far the most badly-fitting segment runs past
@@ -276,21 +280,25 @@ class QAReport(BaseModel):
         the real overrun hides below it."""
         return max(0.0, max((s.drift for s in self.segments), default=0.0))
 
+    @computed_field
     @property
     def largest_gap(self) -> float:
         """The longest silence left after a segment finishes early. Not a
         failure - it is the raw material Step 3 turns into holds."""
         return max(0.0, -min((s.drift for s in self.segments), default=0.0))
 
+    @computed_field
     @property
     def mean_rate_ratio(self) -> float:
         ratios = [s.rate_ratio for s in self.segments if s.rate_ratio > 0]
         return sum(ratios) / len(ratios) if ratios else 0.0
 
+    @computed_field
     @property
     def over_budget_count(self) -> int:
         return sum(1 for s in self.segments if s.over_budget)
 
+    @computed_field
     @property
     def segments_without_pause(self) -> int:
         """Segments that leave no audible gap before the next line.
@@ -299,6 +307,7 @@ class QAReport(BaseModel):
         audio, so a generated track can be compared against it on equal terms."""
         return sum(1 for s in self.segments if s.pause_after < NO_PERCEPTIBLE_PAUSE)
 
+    @computed_field
     @property
     def median_pause(self) -> float:
         if not self.segments:
@@ -329,6 +338,7 @@ class LanguageTrack(BaseModel):
     qa: QAReport | None = None
     exports: list[str] = Field(default_factory=list)
 
+    @computed_field
     @property
     def unfitted(self) -> list[TranslatedSegment]:
         return [t for t in self.translations if not t.fitted]

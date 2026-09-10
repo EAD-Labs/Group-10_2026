@@ -12,7 +12,27 @@ python -m app.cli "../Tamil-script-sample.docx" --language ta --duration 663.2
 python tests/test_parser.py        # or: pytest tests
 python tests/test_pipeline.py
 python tests/test_media.py         # skips if the client videos are absent
+python tests/test_api.py
 ```
+
+## HTTP API (for `../frontend`)
+
+`app/api.py` is a thin FastAPI wrapper - no new pipeline logic, just
+`parse_script`/`run_track`/`run_segments` reached over HTTP for the frontend.
+State (parsed scripts, generated tracks) lives in memory for the life of the
+process; there is no database yet.
+
+```bash
+uvicorn app.api:app --reload --port 8123
+```
+
+- `POST /api/scripts` - multipart upload (`script`, `language`, optional
+  `video` or `duration`) -> `{id, script}`
+- `GET /api/scripts/{id}` -> the stored `ParsedScript`
+- `POST /api/scripts/{id}/run` - `{language, source_language?, translator?,
+  tts?, aligner?, exporters?}` -> `{track, stubbed_stages}`
+- `POST /api/scripts/{id}/run-segments` - `{language, segment_ids}` -> updated
+  track (HLD UC-03: regenerate one segment without a full re-render)
 
 `--duration` is the length of the base video. It sets the last segment's budget;
 without it the parser assumes the script's median window. Better, pass the video
