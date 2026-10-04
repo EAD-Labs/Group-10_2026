@@ -5,11 +5,17 @@ from __future__ import annotations
 import os
 
 from ..duration.syllables import count_syllables
-from ..schemas import ParsedScript, Segment, Sentence
+from ..schemas import ParsedScript, Segment, Sentence, Violation
 from .cues import is_cue_row, parse_cue, to_seconds
 from .docx_reader import RawRow, read_script
 from .sentences import split_sentences
 from .validation import validate_segment
+
+
+def _stamp(seconds: float | None) -> str:
+    if seconds is None:
+        return "?"
+    return f"{int(seconds) // 60:02d}:{int(seconds) % 60:02d}"
 
 
 def _row_time(cell: str) -> float | None:
@@ -111,6 +117,20 @@ def parse_rows(
             bold_terms=sorted(set(row.bold_terms)),
         )
         segment.violations = validate_segment(segment)
+        for cue in owned:
+            if cue.reversed_range:
+                segment.violations.append(
+                    Violation(
+                        rule="ST-CUE-ORDER",
+                        severity="warning",
+                        message=(
+                            f"{cue.id}: clip range is written end-first "
+                            f"({_stamp(cue.clip_end)} to {_stamp(cue.clip_start)}). "
+                            f"Read as {_stamp(cue.clip_start)}-{_stamp(cue.clip_end)}, "
+                            f"{cue.clip_duration:.0f}s. Confirm against the source tutorial."
+                        ),
+                    )
+                )
         segments.append(segment)
 
     return ParsedScript(

@@ -7,3 +7,6 @@ pytest>=8.0
 numpy>=1.26
 soundfile>=0.12
 imageio-ffmpeg>=0.5      # ships an ffmpeg binary; no system install needed
+
+# Module 2 - duration-constrained translation
+httpx>=0.27              # Groq chat-completions client

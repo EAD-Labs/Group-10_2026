@@ -11,23 +11,49 @@ that still runs is what keeps the pipeline demoable on any machine.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from ..align.stub import ClipBoundsAligner
 from ..align.vad import VadAligner
 from ..export.manifest import ManifestExporter
 from ..export.subtitles import SrtExporter
+from ..translate.cache import TranslationCache
 from ..translate.echo import EchoTranslator
+from ..translate.fitting import FittingTranslator
+from ..translate.llm import GroqChat
 from ..tts.silent import SilentTTS
 from .interfaces import Aligner, Exporter, Translator, TTSProvider
 
-TRANSLATORS: dict[str, type] = {
+DEFAULT_CACHE_PATH = "out/translation-cache.json"
+"""Translations are cached on disk because the calls are metered: re-running a
+track after correcting one segment must not re-pay for the other ninety-four."""
+
+
+DEFAULT_MAX_ATTEMPTS_OVERRIDE: int | None = None
+"""Set by the CLI's --max-attempts. Retries cost metered calls, so the cap is
+worth being able to lower for a cheap dry run."""
+
+
+def _groq_translator() -> FittingTranslator:
+    translator = FittingTranslator(
+        model=GroqChat(), cache=TranslationCache(DEFAULT_CACHE_PATH)
+    )
+    if DEFAULT_MAX_ATTEMPTS_OVERRIDE is not None:
+        translator.max_attempts = DEFAULT_MAX_ATTEMPTS_OVERRIDE
+    return translator
+
+TRANSLATORS: dict[str, Callable[[], Translator]] = {
+    # The stub: passes text through, so the pipeline runs with no provider.
     "echo": EchoTranslator,
+    # Module 2: GPT-OSS 120B on Groq, in the duration-fitting loop.
+    "groq": _groq_translator,
 }
 
-TTS_PROVIDERS: dict[str, type] = {
+TTS_PROVIDERS: dict[str, Callable[[], TTSProvider]] = {
     "silent": SilentTTS,
 }
 
-ALIGNERS: dict[str, type] = {
+ALIGNERS: dict[str, Callable[[], Aligner]] = {
     # The stub, paired with SilentTTS: a silent clip has no speech to find.
     "clip-bounds": ClipBoundsAligner,
     # Real, and already built - Step 1's detector, the same one the client's
@@ -35,13 +61,13 @@ ALIGNERS: dict[str, type] = {
     "vad": VadAligner,
 }
 
-EXPORTERS: dict[str, type] = {
+EXPORTERS: dict[str, Callable[[], Exporter]] = {
     "srt": SrtExporter,
     "manifest": ManifestExporter,
 }
 
 
-def _build(table: dict[str, type], name: str, kind: str):
+def _build(table: dict[str, Callable[[], object]], name: str, kind: str):
     try:
         return table[name]()
     except KeyError:

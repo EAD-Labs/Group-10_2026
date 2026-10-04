@@ -64,6 +64,12 @@ def translate_segments(
     for index, segment in enumerate(segments, start=1):
         out.append(translator.translate(segment, target_language=language, model=model))
         progress("translate", index, len(segments))
+
+    # Duck-typed so stubs need not implement it: a translator that paid for
+    # these results gets the chance to persist them before the run moves on.
+    flush = getattr(translator, "flush", None)
+    if callable(flush):
+        flush()
     return out
 
 

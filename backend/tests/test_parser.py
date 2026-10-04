@@ -13,7 +13,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.duration.model import RateModel, calibrate_from_script, fit_track  # noqa: E402
-from app.parsing.parser import parse_script  # noqa: E402
+from app.parsing.cues import parse_cue  # noqa: E402
+from app.parsing.docx_reader import RawRow  # noqa: E402
+from app.parsing.parser import parse_rows, parse_script  # noqa: E402
 from app.parsing.sentences import split_sentences  # noqa: E402
 
 MATERIALS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
@@ -122,6 +124,61 @@ def test_english_script_is_not_flagged_as_broken():
     fit = fit_track(english(), None, "en", RateModel())
     assert len(fit.over_budget) <= 15
     assert fit.total_predicted < fit.total_budget
+
+
+def test_a_reversed_clip_range_still_reserves_the_right_time():
+    """A cue written end-first must not silently reserve zero seconds.
+
+    The old code swapped the two stamps and then subtracted them in the
+    pre-swap order, so the difference came out negative and fell through to
+    0.0. A cue reserving 0 s leaves the segment's budget too generous and the
+    narration lands on top of the embedded clip - wrong, with no error."""
+    reversed_cue = parse_cue("@04:56 Add the audio of X from 05:51 to 05:44", 1)
+    forward_cue = parse_cue("@04:56 Add the audio of X from 05:44 to 05:51", 1)
+
+    assert reversed_cue.clip_duration == 7.0
+    assert reversed_cue.clip_duration == forward_cue.clip_duration
+    assert reversed_cue.clip_start == forward_cue.clip_start
+    assert reversed_cue.clip_end == forward_cue.clip_end
+    assert reversed_cue.reversed_range is True
+    assert forward_cue.reversed_range is False
+
+
+def test_a_reversed_range_is_corrected_but_not_hidden():
+    """The order is fixed so the arithmetic is right; the author is still told,
+    because one of the two files has a typo and only they can say which."""
+    rows = [
+        RawRow(time="00:10", narration="Here is a glimpse of the tutorial."),
+        RawRow(time="", narration="@00:12 Add the audio of X from 00:25 to 00:18"),
+        RawRow(time="00:30", narration="The next tutorial."),
+    ]
+    script = parse_rows(rows, source="typo.docx", language="en", duration=40.0)
+
+    cue = script.cues[0]
+    assert cue.clip_duration == 7.0
+
+    segment = script.segments[0]
+    assert segment.cue_reserved == 7.0
+    # 00:12 anchor minus the 00:10 start: the clip owns everything after it.
+    assert segment.narration_budget == 2.0
+
+    warnings = [v for v in segment.violations if v.rule == "ST-CUE-ORDER"]
+    assert len(warnings) == 1
+    assert warnings[0].severity == "warning"
+    assert "00:18" in warnings[0].message and "00:25" in warnings[0].message
+
+
+def test_an_equal_clip_range_is_zero_not_reversed():
+    cue = parse_cue("@04:56 Add the audio of X from 05:44 to 05:44", 1)
+    assert cue.clip_duration == 0.0
+    assert cue.reversed_range is False
+
+
+def test_the_real_scripts_have_no_reversed_ranges():
+    """Both client files are forward-ordered today. If a future script is not,
+    this fails and the warning path above is what reports it."""
+    assert all(not cue.reversed_range for cue in english().cues)
+    assert all(not cue.reversed_range for cue in tamil().cues)
 
 
 def test_sentence_rules_apply_to_sentences_not_rows():

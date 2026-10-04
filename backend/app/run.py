@@ -27,8 +27,11 @@ STUBS = {"echo", "silent", "clip-bounds", "manifest"}
 
 
 def _progress(stage: str, done: int, total: int) -> None:
-    if done == total:
-        print(f"  {stage:<11} {done}/{total}")
+    # Flushed, and not only at completion: a translate stage is ~95 metered
+    # network calls, and a run that prints nothing for ten minutes is
+    # indistinguishable from a run that has hung.
+    if done == total or done % 5 == 0:
+        print(f"  {stage:<11} {done}/{total}", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--export", nargs="*", default=["srt", "manifest"],
                         choices=sorted(EXPORTERS))
     parser.add_argument("--voice", default=None)
+    parser.add_argument("--max-attempts", type=int, default=None,
+                        help="rephrasing rounds before a segment is escalated")
     args = parser.parse_args(argv)
 
     duration = args.duration
@@ -54,6 +59,10 @@ def main(argv: list[str] | None = None) -> int:
         info = probe(args.video)
         duration = info.duration
         print(f"  base video   : {os.path.basename(args.video)}  {duration:.3f}s")
+
+    if args.max_attempts is not None:
+        from .pipeline import registry
+        registry.DEFAULT_MAX_ATTEMPTS_OVERRIDE = args.max_attempts
 
     config = PipelineConfig(
         language=args.language,
@@ -91,6 +100,27 @@ def main(argv: list[str] | None = None) -> int:
           f"(target 1.00 +/-{RATE_TOLERANCE:.0%})")
     print(f"  audio written      : {sum(a.duration for a in track.audio):.1f}s "
           f"across {len(track.audio)} clips")
+    escalated = track.unfitted
+    if escalated:
+        print()
+        print(f"  NEEDS AN AUTHOR DECISION: {len(escalated)} segment(s)")
+        print("  These could not be fitted by rephrasing alone - meaning has to")
+        print("  come out, and that is not the model's call to make.")
+        by_id = {s.id: s for s in script.segments}
+        for item in sorted(escalated, key=lambda t: -t.overrun)[:10]:
+            source = by_id[item.segment_id].text[:60] if item.segment_id in by_id else ""
+            print()
+            print(f"    {item.segment_id}  budget {item.budget:.1f}s  "
+                  f"needs {item.predicted_duration:.1f}s  (+{item.overrun:.1f}s)")
+            print(f"      {args.source_language.upper():<3}: {source}")
+            if item.text:
+                print(f"      {args.language.upper():<3}: {item.text[:60]}")
+            if item.note:
+                print(f"      -> {item.note}")
+        if len(escalated) > 10:
+            print()
+            print(f"    ... and {len(escalated) - 10} more")
+
     print()
     for path in track.exports:
         print(f"  exported {path}")

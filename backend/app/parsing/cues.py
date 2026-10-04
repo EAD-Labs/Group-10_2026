@@ -43,14 +43,19 @@ def parse_cue(narration: str, index: int) -> ActionCue:
 
     clip_start = clip_end = None
     duration = 0.0
+    reversed_range = False
     if len(stamps) >= 2:
-        clip_start, clip_end = stamps[0], stamps[1]
-        if clip_end > clip_start:
-            duration = clip_end - clip_start
-        else:
-            # Defensive: a reversed range is a script typo, not a negative clip.
-            clip_start, clip_end = clip_end, clip_start
-            duration = clip_start - clip_end if clip_start > clip_end else 0.0
+        # A reversed range is a typo in the script, not a negative clip, so the
+        # two stamps are ordered rather than trusted in the order they were
+        # written. This path is real: the client's English and Tamil scripts
+        # already disagree on the Bouncing-ball cue (05:44-05:51 against
+        # 05:41-05:51), so at least one of these files carries a mistake.
+        #
+        # The order is corrected but not hidden - reversed_range is reported so
+        # the author is told rather than quietly overruled.
+        reversed_range = stamps[0] > stamps[1]
+        clip_start, clip_end = sorted(stamps[:2])
+        duration = clip_end - clip_start
 
     return ActionCue(
         id=f"C-{index:02d}",
@@ -60,4 +65,5 @@ def parse_cue(narration: str, index: int) -> ActionCue:
         clip_start=clip_start,
         clip_end=clip_end,
         clip_duration=duration,
+        reversed_range=reversed_range,
     )

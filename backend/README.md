@@ -165,6 +165,70 @@ Alignment uses the same detector Step 1 measured the client's recordings with
 (`app/media/vad.py`), so a generated track and the client's baseline are
 compared on equal terms rather than by two implementations that could disagree.
 
+## Module 2 - duration-constrained translation
+
+```bash
+echo "GROQ_API_KEY=gsk_..." > ../.env          # never committed
+python -m app.run ../Timed-script-sample-english.docx        --language ta --duration 663.2 --translator groq
+```
+
+GPT-OSS 120B on Groq, wrapped in the fitting loop:
+
+```
+speaking budget (s) -> target aksharas -> ask the model
+                                              |
+                                     measure it OURSELVES
+                                              |
+                          over? -> "you used 22, the limit is 14" -> ask again
+                                              |
+                                    fits -> keep it
+                                              |
+                      3 attempts, still over -> escalate to the author
+```
+
+Three things decide whether this works.
+
+**The budget is the speaking budget.** `RateModel.speaking_budget` - the window
+less the reserved pause - not the window. Targeting the window buys back about
+two aksharas per segment and produces a track where every line fits and none of
+them breathe.
+
+**The model is never trusted to count.** Language models are poor at counting
+syllables and will assert that an over-long line fits. Every candidate is
+measured with `count_syllables`, the same counter that calibrated the duration
+model against the client's recordings, and only that measurement decides.
+
+**The budget is expressed in aksharas, not seconds.** The model has no idea
+what speaking rate we assume, so seconds are a target it cannot evaluate. Each
+request carries the akshara budget and an approximate word count derived from
+the 2.75 aksharas-per-word measured in the client's Tamil script.
+
+Prompts encode the client's own rules (`app/translate/prompts.py`): bold terms
+transliterated rather than translated, interface words kept in English, simple
+vocabulary, one instruction per sentence, two sentences may merge.
+
+### What the job actually requires
+
+Measured against the client's Tamil, per segment, to hit a comfortable pace:
+
+| cut needed | meaning | segments |
+|---|---|---|
+| 0-10% | tighten a phrase | 15 |
+| 10-25% | real rewriting | 19 |
+| 25-40% | drop a clause | 22 |
+| **40%+** | **meaning has to go** | **11** |
+
+Median cut: **24%**. So the loop can be expected to fit most segments and to
+escalate a stubborn tail. Those escalations are the point, not a failure: a
+line needing to lose half its content needs a person to decide what goes, and
+`--translator groq` prints them worst-first with the source, the best attempt
+and the shortfall.
+
+Translations are cached on disk (`out/translation-cache.json`), keyed on source,
+language, budget and model - so correcting one segment does not re-pay for the
+other ninety-four, and a changed budget correctly misses rather than returning
+text fitted to the old one.
+
 ## Known limitations
 
 - Bare numerals (`16.04`, `0`) are not counted as syllables - how they are

@@ -61,6 +61,11 @@ class ActionCue(BaseModel):
     clip_end: float | None = None
     clip_duration: float = 0.0
 
+    reversed_range: bool = False
+    """The clip's two timestamps were written end-first. The order has been
+    corrected so the duration is right, but the script still has a typo in it
+    and the author is told (rule ST-CUE-ORDER)."""
+
 
 class Segment(BaseModel):
     """One narration row, with its timing budget resolved."""
@@ -164,6 +169,11 @@ class TranslatedSegment(BaseModel):
     S6.1 M2 - 'escalates unfittable segments to the author')."""
 
     translator: str = "echo"
+
+    note: str | None = None
+    """Why this segment needs a human, when it does: how far over it still is
+    after the retry cap, or what went wrong with the provider. This is what the
+    author reads in the escalation list (HLD S6.1 M2)."""
 
     @property
     def overrun(self) -> float:
