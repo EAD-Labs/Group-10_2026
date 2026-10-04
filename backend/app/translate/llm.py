@@ -42,6 +42,15 @@ class LLMError(RuntimeError):
     """The provider could not be reached, or refused the request."""
 
 
+class TruncatedReply(LLMError):
+    """The reply hit max_tokens before producing any content.
+
+    A reasoning model spends completion tokens thinking before it answers, so a
+    cap tight enough to protect the rate limit can be consumed entirely by the
+    reasoning on a long line. Retried with a larger budget rather than reported
+    as an empty translation."""
+
+
 @runtime_checkable
 class ChatModel(Protocol):
     """One turn in, one string out. Deliberately the smallest useful surface."""
@@ -138,8 +147,10 @@ class GroqChat:
         headers = {"Authorization": f"Bearer {self._api_key}"}
 
         last_error = ""
+        budget = self.max_tokens
         for attempt in range(self.max_retries):
             wait = 2.0 * (attempt + 1)
+            payload["max_tokens"] = budget
             try:
                 response = httpx.post(
                     GROQ_ENDPOINT, json=payload, headers=headers, timeout=self.timeout
@@ -148,7 +159,18 @@ class GroqChat:
                 last_error = str(exc)
             else:
                 if response.status_code == 200:
-                    return self._extract(response.json())
+                    try:
+                        return self._extract(response.json())
+                    except TruncatedReply as exc:
+                        # The reasoning outgrew the budget. A longer source
+                        # line needs more room to think; give it more rather
+                        # than failing a segment that is otherwise fine.
+                        last_error = str(exc)
+                        budget = min(budget * 2, 2000)
+                        wait = 0.0
+                        if attempt < self.max_retries - 1:
+                            continue
+                        raise LLMError(last_error) from exc
                 last_error = f"HTTP {response.status_code}: {response.text[:300]}"
                 if response.status_code not in RETRY_STATUS:
                     break
@@ -186,9 +208,9 @@ class GroqChat:
             # The model spent its whole completion budget reasoning. Silent
             # truncation would surface downstream as "empty translation",
             # which points at the wrong thing entirely.
-            raise LLMError(
+            raise TruncatedReply(
                 "reply truncated before any content: the reasoning consumed "
-                "max_tokens. Raise max_tokens or lower reasoning_effort."
+                f"max_tokens"
             )
         return content
 
