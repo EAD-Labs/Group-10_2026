@@ -18,10 +18,7 @@ from app.parsing.docx_reader import RawRow  # noqa: E402
 from app.parsing.parser import parse_rows, parse_script  # noqa: E402
 from app.parsing.sentences import split_sentences  # noqa: E402
 
-MATERIALS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__)))))
-ENGLISH = os.path.join(MATERIALS, "Timed-script-sample-english.docx")
-TAMIL = os.path.join(MATERIALS, "Tamil-script-sample.docx")
+from tests._paths import ENGLISH_SCRIPT as ENGLISH, TAMIL_SCRIPT as TAMIL  # noqa: E402
 
 # Measured from the webm containers the client supplied.
 VIDEO_DURATION = 663.2

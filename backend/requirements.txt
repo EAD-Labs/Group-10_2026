@@ -1,6 +1,7 @@
 pydantic>=2.9
 fastapi>=0.115
 uvicorn[standard]>=0.30
+python-multipart>=0.0.9  # file uploads in the API
 pytest>=8.0
 
 # Step 1 - audio measurement
@@ -9,4 +10,6 @@ soundfile>=0.12
 imageio-ffmpeg>=0.5      # ships an ffmpeg binary; no system install needed
 
 # Module 2 - duration-constrained translation
-httpx>=0.27              # Groq chat-completions client
+httpx>=0.27              # Groq and Sarvam clients
+
+# Optional local machine translation (IndicTrans2): see requirements-mt.txt

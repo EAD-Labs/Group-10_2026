@@ -1,0 +1,10 @@
+# Optional: local machine translation with IndicTrans2 (translator "indictrans+groq").
+# Kept out of requirements.txt so the stub pipeline still installs in seconds.
+#
+# CPU-only torch is much smaller than the default CUDA build:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-mt.txt
+torch>=2.2
+transformers>=4.40,<4.47   # IndicTrans2's model code predates the Cache objects 4.47+ pass
+sentencepiece>=0.2
+IndicTransToolkit>=1.0

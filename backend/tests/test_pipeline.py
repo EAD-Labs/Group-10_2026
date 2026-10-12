@@ -46,9 +46,8 @@ from app.schemas import (  # noqa: E402
 from app.timeline.builder import build_timeline  # noqa: E402
 from app.tts.silent import write_silence  # noqa: E402
 
-MATERIALS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ENGLISH = os.path.join(MATERIALS, "Timed-script-sample-english.docx")
-TAMIL = os.path.join(MATERIALS, "Tamil-script-sample.docx")
+from tests._paths import ROOT as MATERIALS  # noqa: E402
+from tests._paths import ENGLISH_SCRIPT as ENGLISH, TAMIL_SCRIPT as TAMIL  # noqa: E402
 VIDEO_DURATION = 663.2
 
 
@@ -68,7 +67,7 @@ def test_stubs_satisfy_the_interfaces():
 
 def test_registry_rejects_an_unknown_provider():
     try:
-        get_tts("sarvam")
+        get_tts("no-such-voice")
     except ValueError as error:
         assert "available" in str(error)
     else:

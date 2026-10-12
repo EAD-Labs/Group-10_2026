@@ -15,16 +15,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.media.probe import probe, probe_duration  # noqa: E402
 
-MATERIALS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ENGLISH_VIDEO = os.path.join(MATERIALS, "Overview-of-Synfig-English.webm")
-TAMIL_VIDEO = os.path.join(MATERIALS, "Overview-of-Synfig-Tamil.webm")
+from tests._paths import ENGLISH_SCRIPT, ENGLISH_VIDEO, SAMPLES, TAMIL_VIDEO  # noqa: E402
+from tests._paths import Skip as Skipped  # noqa: E402
 
 # The figure hard-coded across the test suite before the probe existed.
 ASSUMED_DURATION = 663.2
-
-
-class Skipped(Exception):
-    """Raised when the client media is not on this machine."""
 
 
 def _require(path: str) -> str:
@@ -64,7 +59,7 @@ def test_every_action_cue_lands_inside_the_video():
 
     duration = probe_duration(_require(ENGLISH_VIDEO))
     script = parse_script(
-        os.path.join(MATERIALS, "Timed-script-sample-english.docx"),
+        ENGLISH_SCRIPT,
         language="en",
         duration=duration,
     )
@@ -77,7 +72,7 @@ def test_every_action_cue_lands_inside_the_video():
 
 def test_a_missing_file_is_an_error_not_a_guess():
     try:
-        probe(os.path.join(MATERIALS, "no-such-video.webm"))
+        probe(os.path.join(SAMPLES, "no-such-video.webm"))
     except ValueError as error:
         assert "no such file" in str(error)
     else:
@@ -87,7 +82,7 @@ def test_a_missing_file_is_an_error_not_a_guess():
 def test_a_non_matroska_file_is_rejected():
     """Guessing a duration would put a wrong number under every budget."""
     try:
-        probe(os.path.join(MATERIALS, "Timed-script-sample-english.docx"))
+        probe(ENGLISH_SCRIPT)
     except ValueError as error:
         assert "duration" in str(error)
     else:

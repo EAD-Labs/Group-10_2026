@@ -16,6 +16,7 @@ from ..schemas import LanguageTrack
 
 class ManifestExporter:
     name = "manifest"
+    is_stub = True
 
     def export(self, track: LanguageTrack, out_dir: str) -> list[str]:
         os.makedirs(out_dir, exist_ok=True)

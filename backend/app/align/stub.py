@@ -13,27 +13,17 @@ what is measured, not whether anything is.
 
 from __future__ import annotations
 
-import contextlib
-import os
-import wave
-
+from ..media.audio import wav_duration
 from ..schemas import AlignmentResult, AudioAsset
 
-
-def wav_duration(path: str) -> float:
-    """Duration of a WAV file in seconds, or 0.0 if it cannot be read."""
-    if not os.path.exists(path):
-        return 0.0
-    with contextlib.suppress(wave.Error, EOFError), wave.open(path, "rb") as handle:
-        rate = handle.getframerate()
-        return handle.getnframes() / rate if rate else 0.0
-    return 0.0
+__all__ = ["ClipBoundsAligner", "wav_duration"]
 
 
 class ClipBoundsAligner:
     """Treats the whole clip as speech."""
 
     name = "clip-bounds"
+    is_stub = True
 
     def align(self, audio: AudioAsset, text: str) -> AlignmentResult:
         duration = wav_duration(audio.path) or audio.duration

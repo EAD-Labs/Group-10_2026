@@ -25,8 +25,7 @@ from app.translate.fitting import FittingTranslator  # noqa: E402
 from app.translate.llm import GroqChat, LLMError, ScriptedChat  # noqa: E402
 from app.translate.prompts import build_first_request, clean_reply  # noqa: E402
 
-MATERIALS = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ENGLISH = os.path.join(MATERIALS, "Timed-script-sample-english.docx")
+from tests._paths import ENGLISH_SCRIPT as ENGLISH  # noqa: E402
 VIDEO_DURATION = 663.2
 
 WORD = "வணக்கம்"  # 3 aksharas
@@ -70,7 +69,9 @@ def test_a_translation_that_fits_is_kept_on_the_first_attempt():
     translator = FittingTranslator(model=ScriptedChat())
     target = translator.target_units(segment, "ta", rates)
 
-    translator.model.replies = [tamil_of(target - 3)]
+    # The segment's on-screen terms are kept, as a real reply must keep them.
+    terms = " ".join(segment.bold_terms)
+    translator.model.replies = [f"{terms} {tamil_of(target - 3 - count_syllables(terms))}"]
     result = translator.translate(segment, target_language="ta", model=rates)
 
     assert result.fitted is True
@@ -282,6 +283,201 @@ def test_model_wrappers_are_stripped_before_counting():
     assert clean_reply("```\n" + WORD + "\n```") == WORD
     assert clean_reply("Translation: " + WORD) == WORD
     assert clean_reply('"' + WORD + '"') == WORD
+
+
+class _Drafter:
+    """Stands in for IndicTrans2: returns a fixed draft, counts its calls."""
+
+    name = "fake-mt"
+
+    def __init__(self, text: str = "", error: Exception | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.calls = 0
+        self.prepared: list = []
+
+    def prepare(self, segments, target_language):
+        self.prepared.extend(segments)
+
+    def draft(self, segment, target_language):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.text
+
+
+def _with_terms(segment, aksharas: int) -> str:
+    """A Tamil line of about `aksharas` units that keeps the on-screen terms."""
+    terms = " ".join(segment.bold_terms)
+    return f"{terms} {tamil_of(aksharas - count_syllables(terms))}".strip()
+
+
+def test_a_draft_that_fits_costs_no_llm_call():
+    """The point of drafting locally: segments the MT model already fits never
+    reach the metered API."""
+    segment = a_segment()
+    rates = RateModel()
+    chat = ScriptedChat()
+    translator = FittingTranslator(model=chat, drafter=_Drafter())
+    target = translator.target_units(segment, "ta", rates)
+    translator.drafter.text = _with_terms(segment, target - 3)
+
+    result = translator.translate(segment, target_language="ta", model=rates)
+
+    assert result.fitted is True
+    assert result.stage == "draft"
+    assert result.text == result.draft_text == translator.drafter.text
+    assert chat.calls == []
+
+
+def test_an_overlong_draft_is_edited_not_retranslated():
+    segment = a_segment()
+    rates = RateModel()
+    chat = ScriptedChat()
+    translator = FittingTranslator(model=chat, drafter=_Drafter())
+    target = translator.target_units(segment, "ta", rates)
+    draft = _with_terms(segment, target + 15)
+    translator.drafter.text = draft
+    chat.replies = [_with_terms(segment, target - 2)]
+
+    result = translator.translate(segment, target_language="ta", model=rates)
+
+    assert result.fitted is True
+    assert result.stage == "shortened"
+    assert result.draft_text == draft
+    assert result.text != draft
+    system, user = chat.calls[0]
+    assert "draft" in system.lower()
+    assert draft in user  # the model edits the MT output...
+    assert segment.text in user  # ...with the English to check meaning against
+    assert str(count_syllables(draft)) in user
+
+
+def test_a_draft_that_lost_an_on_screen_term_goes_to_the_llm_even_if_it_fits():
+    """MT models translate menu names. The learner is matching words against
+    the screen, so a fitting draft that lost one is still not acceptable."""
+    segment = a_segment()
+    assert segment.bold_terms, "fixture segment must carry on-screen terms"
+    rates = RateModel()
+    chat = ScriptedChat()
+    translator = FittingTranslator(model=chat, drafter=_Drafter())
+    target = translator.target_units(segment, "ta", rates)
+    translator.drafter.text = tamil_of(target - 6)  # fits, but no terms
+    chat.replies = [_with_terms(segment, target - 2)]
+
+    result = translator.translate(segment, target_language="ta", model=rates)
+
+    assert len(chat.calls) == 1
+    assert segment.bold_terms[0] in chat.calls[0][1]
+    assert result.stage == "shortened"
+    assert result.note is None
+
+
+def test_an_unfittable_draft_escalates_with_the_draft_attached():
+    segment = a_segment()
+    rates = RateModel()
+    chat = ScriptedChat()
+    translator = FittingTranslator(model=chat, drafter=_Drafter(), max_attempts=2)
+    target = translator.target_units(segment, "ta", rates)
+    translator.drafter.text = _with_terms(segment, target + 20)
+    chat.replies = [_with_terms(segment, target + 12), _with_terms(segment, target + 9)]
+
+    result = translator.translate(segment, target_language="ta", model=rates)
+
+    assert result.fitted is False
+    assert result.stage == "escalated"
+    assert result.draft_text == translator.drafter.text
+    assert result.syllables == count_syllables(_with_terms(segment, target + 9))
+
+
+def test_a_failed_draft_falls_back_to_translating_with_the_llm():
+    segment = a_segment()
+    rates = RateModel()
+    chat = ScriptedChat()
+    translator = FittingTranslator(model=chat, drafter=_Drafter(error=RuntimeError("no torch")))
+    target = translator.target_units(segment, "ta", rates)
+    chat.replies = [_with_terms(segment, target - 2)]
+
+    result = translator.translate(segment, target_language="ta", model=rates)
+
+    assert result.fitted is True
+    assert result.draft_text is None
+    assert "English line" in chat.calls[0][1]
+
+
+def test_a_changed_draft_misses_the_edit_cache():
+    """The edit is an answer to the draft as much as to the English; a new MT
+    model's draft must not be handed an edit of the old one."""
+    segment = a_segment()
+    rates = RateModel()
+    cache = TranslationCache()
+    first = FittingTranslator(model=ScriptedChat(), drafter=_Drafter(), cache=cache)
+    target = first.target_units(segment, "ta", rates)
+    first.drafter.text = _with_terms(segment, target + 15)
+    first.model.replies = [_with_terms(segment, target - 2)]
+    first.translate(segment, target_language="ta", model=rates)
+
+    second = FittingTranslator(model=ScriptedChat(), drafter=_Drafter(), cache=cache)
+    second.drafter.text = _with_terms(segment, target + 18)
+    second.model.replies = [_with_terms(segment, target - 4)]
+    second.translate(segment, target_language="ta", model=rates)
+
+    assert len(second.model.calls) == 1
+
+
+def test_the_translator_forwards_prepare_to_its_drafter():
+    segments = parse_script(ENGLISH, language="en", duration=VIDEO_DURATION).segments[:5]
+    drafter = _Drafter()
+    FittingTranslator(model=ScriptedChat(), drafter=drafter).prepare(segments, "ta")
+    assert drafter.prepared == segments
+
+
+def test_sarvam_chat_request_shape():
+    """sarvam-105b over Sarvam's OpenAI-compatible v1 endpoint, with the key
+    in both headers the docs name, and reasoning explicitly OFF: Sarvam's
+    default spends the whole token cap thinking and returns no text."""
+    import httpx
+
+    from app.translate.llm import SarvamChat
+
+    sent = {}
+
+    class Reply:
+        status_code = 200
+        headers: dict = {}
+        text = ""
+
+        def json(self):
+            return {"choices": [{"finish_reason": "stop", "message": {"content": WORD}}]}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        sent.update(url=url, json=json, headers=headers)
+        return Reply()
+
+    original = httpx.post
+    httpx.post = fake_post
+    try:
+        reply = SarvamChat(api_key="sk_test").complete("system", "user")
+    finally:
+        httpx.post = original
+
+    assert reply == WORD
+    assert sent["url"] == "https://api.sarvam.ai/v1/chat/completions"
+    assert sent["headers"] == {"Authorization": "Bearer sk_test", "api-subscription-key": "sk_test"}
+    assert sent["json"]["model"] == "sarvam-105b"
+    assert "reasoning_effort" in sent["json"] and sent["json"]["reasoning_effort"] is None
+    assert [m["role"] for m in sent["json"]["messages"]] == ["system", "user"]
+
+
+def test_sarvam_chat_without_a_key_names_the_right_variable():
+    from app.translate.llm import SarvamChat
+
+    try:
+        SarvamChat(api_key="").complete("s", "u")
+    except LLMError as error:
+        assert "SARVAM_API_KEY" in str(error)
+    else:
+        raise AssertionError("expected LLMError")
 
 
 def test_groq_without_a_key_fails_with_a_usable_message():

@@ -1,7 +1,7 @@
 """Run the whole pipeline over a script.
 
-    python -m app.run "../Timed-script-sample-english.docx" --language en --duration 663.2
-    python -m app.run script.docx --language ta --tts silent --out out/
+    python -m app.run ../samples/Timed-script-sample-english.docx --language en --duration 663.2
+    python -m app.run ../samples/Timed-script-sample-english.docx --language ta         --translator indictrans+groq --tts sarvam --aligner vad         --video ../samples/Overview-of-Synfig-English.webm --workers 4
 
 Stages that are still stubs are named in the output on purpose: a demo should
 never leave anyone unsure which numbers are real.
@@ -20,10 +20,9 @@ from .duration.model import (
     RateModel,
 )
 from .media.probe import probe
+from .parsing.parser import parse_script
 from .pipeline.registry import ALIGNERS, EXPORTERS, TRANSLATORS, TTS_PROVIDERS
-from .pipeline.runner import PipelineConfig, run_pipeline
-
-STUBS = {"echo", "silent", "clip-bounds", "manifest"}
+from .pipeline.runner import PipelineConfig, build_providers, run_track
 
 
 def _progress(stage: str, done: int, total: int) -> None:
@@ -52,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--voice", default=None)
     parser.add_argument("--max-attempts", type=int, default=None,
                         help="rephrasing rounds before a segment is escalated")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="concurrent provider calls in translate/synthesize")
     args = parser.parse_args(argv)
 
     duration = args.duration
@@ -60,9 +61,9 @@ def main(argv: list[str] | None = None) -> int:
         duration = info.duration
         print(f"  base video   : {os.path.basename(args.video)}  {duration:.3f}s")
 
+    provider_options: dict[str, dict] = {}
     if args.max_attempts is not None:
-        from .pipeline import registry
-        registry.DEFAULT_MAX_ATTEMPTS_OVERRIDE = args.max_attempts
+        provider_options["translator"] = {"max_attempts": args.max_attempts}
 
     config = PipelineConfig(
         language=args.language,
@@ -73,16 +74,15 @@ def main(argv: list[str] | None = None) -> int:
         exporters=list(args.export),
         voice=args.voice,
         rate_model=RateModel(),
+        provider_options=provider_options,
+        max_workers=args.workers,
+        video_path=args.video,
     )
 
     print(f"{args.script}  ->  {args.language}")
-    script, track = run_pipeline(
-        args.script,
-        config,
-        duration=duration,
-        source_language=args.source_language,
-        progress=_progress,
-    )
+    script = parse_script(args.script, language=args.source_language, duration=duration)
+    providers = build_providers(config, script)
+    track = run_track(script, config, progress=_progress, providers=providers)
 
     qa = track.qa
     assert qa is not None
@@ -125,12 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     for path in track.exports:
         print(f"  exported {path}")
 
-    active_stubs = sorted(
-        {args.translator, args.tts, args.aligner, *args.export} & STUBS
-    )
-    if active_stubs:
+    if providers.stubs:
         print()
-        print(f"  STUBBED STAGES: {', '.join(active_stubs)} - these numbers are not real audio")
+        print(f"  STUBBED STAGES: {', '.join(providers.stubs)} - these numbers are not real audio")
     return 0
 
 

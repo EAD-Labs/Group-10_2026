@@ -11,6 +11,8 @@ scripts (see calibrate_from_script).
 
 from __future__ import annotations
 
+import json
+import os
 import statistics
 from dataclasses import dataclass, field
 
@@ -49,6 +51,10 @@ DEFAULT_RATES = {
 purpose: the point of the project is that the TEXT absorbs the expansion, not
 the speaking rate."""
 
+VOICE_RATES_PATH = os.path.join("out", "voice-rates.json")
+"""Where `python -m app.calibrate_voice` writes each TTS voice's measured
+articulation rate, keyed "<provider name>/<speaker>" then by language."""
+
 DRIFT_TOLERANCE = 0.25
 """Seconds. HLD S14 acceptance criterion: per-segment drift <= 250 ms."""
 
@@ -56,11 +62,36 @@ RATE_TOLERANCE = 0.10
 """Speaking rate must stay within +/-10% of the reference pace (HLD S14)."""
 
 
+def voice_key(provider: str, speaker: str | None) -> str:
+    """How a calibrated voice is named in VOICE_RATES_PATH."""
+    return f"{provider}/{speaker or 'default'}"
+
+
 @dataclass
 class RateModel:
     rates: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_RATES))
     reference_language: str = "en"
     pause_reserve: float = PAUSE_RESERVE
+
+    @classmethod
+    def for_voice(cls, voice_key: str | None, path: str = VOICE_RATES_PATH) -> "RateModel":
+        """A model whose rates are the calibrated pace of a TTS voice.
+
+        The default rates describe the client's human narrator. A synthetic
+        voice speaks at its own pace, and budgeting text at a rate the voice
+        does not speak at makes "fits on paper" and "fits in the audio"
+        disagree. `python -m app.calibrate_voice` measures it; until it has,
+        the narrator's rates stand."""
+        model = cls()
+        if not voice_key or not os.path.exists(path):
+            return model
+        try:
+            with open(path, encoding="utf-8") as handle:
+                measured = json.load(handle).get(voice_key, {})
+        except (OSError, ValueError):
+            return model
+        model.rates.update({k: float(v) for k, v in measured.items() if float(v) > 0})
+        return model
 
     def rate(self, language: str) -> float:
         return self.rates.get(language, self.rates[self.reference_language])

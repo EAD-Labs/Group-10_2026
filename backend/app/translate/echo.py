@@ -24,6 +24,7 @@ class EchoTranslator:
     """Passes text through untouched."""
 
     name = "echo"
+    is_stub = True
 
     def translate(
         self, segment: Segment, *, target_language: str, model: RateModel

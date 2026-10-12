@@ -7,9 +7,11 @@ case on Windows).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
+import wave
 from functools import lru_cache
 
 
@@ -58,3 +60,17 @@ def extract_audio(
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg failed on {video_path}: {result.stderr.strip()}")
     return output_path
+
+
+def wav_duration(path: str) -> float:
+    """Duration of a WAV file in seconds, or 0.0 if it cannot be read.
+
+    Read from the file rather than taken from whoever wrote it: QA compares
+    predicted against actual, and that comparison is worthless if 'actual' is
+    just the prediction handed back."""
+    if not os.path.exists(path):
+        return 0.0
+    with contextlib.suppress(wave.Error, EOFError), wave.open(path, "rb") as handle:
+        rate = handle.getframerate()
+        return handle.getnframes() / rate if rate else 0.0
+    return 0.0

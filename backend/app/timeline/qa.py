@@ -41,7 +41,10 @@ def build_qa_report(
     model: RateModel | None = None,
 ) -> QAReport:
     model = model or RateModel()
-    reference = model.rate(model.reference_language)
+    # The pace this track was budgeted at. For a calibrated TTS voice that is
+    # the voice's own rate, so a clip read at the voice's natural speed scores
+    # 1.00 - not "rushed" against a human narrator it was never asked to match.
+    reference = model.rate(language)
 
     by_translation = {t.segment_id: t for t in translations}
     by_audio = {a.segment_id: a for a in audio}

@@ -17,24 +17,22 @@ from app.media.audio import extract_audio  # noqa: E402
 from app.media.vad import detect_speech  # noqa: E402
 from app.parsing.parser import parse_script  # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests._paths import (  # noqa: E402
+    ENGLISH_SCRIPT,
+    ENGLISH_VIDEO,
+    ROOT,
+    TAMIL_SCRIPT,
+    TAMIL_VIDEO,
+    Skip,
+)
+
 WORK = os.path.join(ROOT, "work", "audio")
 VIDEO_DURATION = 663.2
 
 TRACKS = {
-    "en": (
-        os.path.join(ROOT, "Overview-of-Synfig-English.webm"),
-        os.path.join(ROOT, "Timed-script-sample-english.docx"),
-    ),
-    "ta": (
-        os.path.join(ROOT, "Overview-of-Synfig-Tamil.webm"),
-        os.path.join(ROOT, "Tamil-script-sample.docx"),
-    ),
+    "en": (ENGLISH_VIDEO, ENGLISH_SCRIPT),
+    "ta": (TAMIL_VIDEO, TAMIL_SCRIPT),
 }
-
-
-class Skip(Exception):
-    """Raised when the client media is not available on this machine."""
 
 
 def _load(language: str):

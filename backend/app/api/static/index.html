@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tutorial Dubbing</title>
+<style>
+:root {
+  --bg:#f6f7f9; --panel:#fff; --ink:#1b1d21; --muted:#6b7280; --line:#e5e7eb;
+  --accent:#2563eb; --ok:#15803d; --okbg:#ecfdf3; --bad:#b91c1c; --badbg:#fef2f2;
+  --warn:#a16207; --warnbg:#fefce8; --chip:#f1f5f9;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#0f1115; --panel:#171a21; --ink:#e6e8ec; --muted:#9aa3b2; --line:#2a2f3a;
+    --accent:#60a5fa; --ok:#4ade80; --okbg:#10291b; --bad:#f87171; --badbg:#2d1414;
+    --warn:#facc15; --warnbg:#2a2510; --chip:#222734;
+  }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink);
+  font:14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding:16px 24px; border-bottom:1px solid var(--line); background:var(--panel);
+  display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+header h1 { font-size:17px; margin:0; font-weight:650; }
+.badges { display:flex; gap:6px; flex-wrap:wrap; margin-left:auto; }
+.badge { font-size:12px; padding:2px 9px; border-radius:999px; background:var(--chip); color:var(--muted); }
+.badge.on { color:var(--ok); background:var(--okbg); }
+.badge.off { color:var(--bad); background:var(--badbg); }
+main { max-width:1400px; margin:0 auto; padding:20px 24px 60px; display:grid; gap:16px; }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; }
+.panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 12px; font-weight:600; }
+form { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; align-items:end; }
+label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
+select, input, textarea, button { font:inherit; color:var(--ink); }
+select, input[type=number] { padding:7px 8px; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+input[type=file] { font-size:12px; }
+button { padding:8px 14px; border-radius:6px; border:1px solid var(--line); background:var(--panel); cursor:pointer; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+button:disabled { opacity:.5; cursor:default; }
+.row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.muted { color:var(--muted); }
+.stages { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
+.stage { border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+.stage .name { font-size:12px; color:var(--muted); display:flex; justify-content:space-between; }
+.bar { height:6px; background:var(--chip); border-radius:3px; margin-top:6px; overflow:hidden; }
+.bar > i { display:block; height:100%; width:0; background:var(--accent); transition:width .3s; }
+.stage.done .bar > i { background:var(--ok); }
+.error { color:var(--bad); background:var(--badbg); padding:10px 12px; border-radius:8px; white-space:pre-wrap; }
+.stubs { color:var(--warn); background:var(--warnbg); padding:8px 12px; border-radius:8px; font-size:13px; }
+.cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; }
+.card { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+.card .n { font-size:22px; font-weight:650; font-variant-numeric:tabular-nums; }
+.card .l { font-size:12px; color:var(--muted); }
+.media { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1fr); gap:16px; }
+@media (max-width:900px) { .media { grid-template-columns:1fr; } }
+video, audio { width:100%; border-radius:8px; background:#000; }
+audio { background:none; }
+.downloads a { display:block; color:var(--accent); text-decoration:none; font-size:13px; padding:2px 0; word-break:break-all; }
+.filters { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+.filters button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; min-width:980px; }
+th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+  padding:8px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); }
+td { padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+tr.bad td:first-child { box-shadow:inset 3px 0 var(--bad); }
+tr.ok td:first-child { box-shadow:inset 3px 0 var(--ok); }
+.id { font-family:var(--mono); font-size:12px; white-space:nowrap; }
+.num { font-family:var(--mono); font-size:12px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.over { color:var(--bad); font-weight:600; }
+.under { color:var(--ok); }
+.draft { color:var(--muted); font-size:13px; }
+.tag { display:inline-block; font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px; white-space:nowrap; }
+.tag.draft { color:var(--ok); background:var(--okbg); }
+.tag.shortened { color:var(--accent); background:var(--chip); }
+.tag.escalated, .tag.failed { color:var(--bad); background:var(--badbg); }
+.tag.cue { color:var(--warn); background:var(--warnbg); }
+.note { color:var(--bad); font-size:12px; margin-top:4px; }
+textarea { width:100%; min-height:64px; padding:6px; border:1px solid var(--accent); border-radius:6px; background:var(--panel); }
+.actions { display:flex; gap:4px; flex-direction:column; }
+.actions button { padding:4px 8px; font-size:12px; }
+.empty { padding:24px; text-align:center; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spoken Tutorial dubbing</h1>
+  <span class="muted">IndicTrans2 draft &rarr; Sarvam shortening &rarr; Sarvam voice</span>
+  <div class="badges" id="health"></div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>New job</h2>
+    <form id="form">
+      <label>Script (.docx)
+        <select name="sample_script" id="sampleScript"><option value="">Upload a file&hellip;</option></select>
+        <input type="file" name="script" accept=".docx">
+      </label>
+      <label>Base video (optional)
+        <select name="sample_video" id="sampleVideo"><option value="">None / upload&hellip;</option></select>
+        <input type="file" name="video" accept=".webm,.mkv,.mp4">
+      </label>
+      <label>Target language
+        <select name="language"><option value="ta">Tamil</option></select>
+      </label>
+      <label>Translator <select name="translator" id="translator"></select></label>
+      <label>Voice <select name="tts" id="tts"></select></label>
+      <label>Duration (s, if no video) <input type="number" step="0.1" name="duration" value="663.2"></label>
+      <label>Parallel calls <input type="number" name="workers" min="1" max="8" value="4"></label>
+      <button class="primary" type="submit" id="run">Run pipeline</button>
+    </form>
+    <div class="row" style="margin-top:12px">
+      <label style="grid-auto-flow:column; align-items:center">Previous jobs
+        <select id="jobs"><option value="">&mdash;</option></select>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel" id="progressPanel" hidden>
+    <h2>Progress <span id="jobLabel" class="muted" style="text-transform:none; letter-spacing:0"></span></h2>
+    <div class="stages" id="stages"></div>
+    <div id="stubs" class="stubs" style="margin-top:12px" hidden></div>
+    <div id="error" class="error" style="margin-top:12px" hidden></div>
+  </section>
+
+  <section class="panel" id="resultPanel" hidden>
+    <h2>Result</h2>
+    <div class="cards" id="cards"></div>
+    <div class="media" style="margin-top:16px">
+      <div id="player"></div>
+      <div class="downloads" id="downloads"></div>
+    </div>
+  </section>
+
+  <section class="panel" id="segmentsPanel" hidden>
+    <h2>Segments</h2>
+    <div class="filters" id="filters">
+      <button data-f="all" class="active">All</button>
+      <button data-f="escalated">Needs an author</button>
+      <button data-f="drift">Audio overruns</button>
+      <button data-f="shortened">Shortened by LLM</button>
+      <button data-f="draft">MT draft kept</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Segment</th><th>Budget</th><th>English</th><th>Tamil</th><th>Audio</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (n, d = 1) => (n === null || n === undefined) ? "&mdash;" : Number(n).toFixed(d);
+const clock = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+let state = { job: null, track: null, filter: "all", stages: [], timer: null, editing: null };
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  if (!response.ok) {
+    let detail = response.statusText;
+    try { detail = (await response.json()).detail || detail; } catch (_) {}
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
+async function init() {
+  const [health, samples, jobs] = await Promise.all([api("/api/health"), api("/api/samples"), api("/api/jobs")]);
+  state.stages = health.stages;
+  const badge = (on, label) => `<span class="badge ${on ? "on" : "off"}">${on ? "&#10003;" : "&#10007;"} ${label}</span>`;
+  $("#health").innerHTML = badge(health.indictrans_installed, "IndicTrans2") +
+    badge(health.sarvam_key, "Sarvam key") + (health.groq_key ? badge(true, "Groq key") : "");
+
+  const fill = (el, values, preferred) => {
+    el.innerHTML = values.map((v) => `<option ${v === preferred ? "selected" : ""}>${esc(v)}</option>`).join("");
+  };
+  const translator = !health.sarvam_key ? "echo"
+    : health.indictrans_installed ? "indictrans+sarvam" : "sarvam";
+  fill($("#translator"), health.translators, translator);
+  fill($("#tts"), health.tts, health.sarvam_key ? "sarvam" : "silent");
+  for (const s of samples.scripts) $("#sampleScript").insertAdjacentHTML("beforeend", `<option ${s.includes("english") ? "selected" : ""}>${esc(s)}</option>`);
+  for (const v of samples.videos) $("#sampleVideo").insertAdjacentHTML("beforeend", `<option ${v.includes("English") ? "selected" : ""}>${esc(v)}</option>`);
+
+  renderJobList(jobs);
+  const last = new URLSearchParams(location.search).get("job");
+  if (last) openJob(last);
+}
+
+function renderJobList(jobs) {
+  $("#jobs").innerHTML = `<option value="">&mdash;</option>` + jobs.map((j) =>
+    `<option value="${j.id}">${new Date(j.created * 1000).toLocaleString()} · ${esc(j.script_name)} → ${j.language} · ${j.translator}/${j.tts} · ${j.status}</option>`).join("");
+}
+
+$("#jobs").addEventListener("change", (e) => e.target.value && openJob(e.target.value));
+
+$("#form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const data = new FormData(e.target);
+  for (const key of ["script", "video"]) if (!data.get(key) || !data.get(key).name) data.delete(key);
+  $("#run").disabled = true;
+  try {
+    const job = await api("/api/jobs", { method: "POST", body: data });
+    openJob(job.id);
+    renderJobList(await api("/api/jobs"));
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    $("#run").disabled = false;
+  }
+});
+
+function openJob(id) {
+  history.replaceState(null, "", `?job=${id}`);
+  state.track = null;
+  $("#resultPanel").hidden = $("#segmentsPanel").hidden = true;
+  clearInterval(state.timer);
+  poll(id);
+  state.timer = setInterval(() => poll(id), 1000);
+}
+
+async function poll(id) {
+  let job;
+  try { job = await api(`/api/jobs/${id}`); } catch (err) { clearInterval(state.timer); return; }
+  state.job = job;
+  renderProgress(job);
+  if (job.status === "done" || job.status === "error") {
+    clearInterval(state.timer);
+    if (job.status === "done") loadTrack(id);
+  }
+}
+
+function renderProgress(job) {
+  $("#progressPanel").hidden = false;
+  $("#jobLabel").textContent = `· ${job.script_name} → ${job.language} · ${job.translator} / ${job.tts} / ${job.aligner} · ${job.status}`;
+  $("#stages").innerHTML = state.stages.map((stage) => {
+    const [done, total] = job.progress[stage] || [0, 0];
+    const finished = job.status === "done" || (total > 0 && done >= total && stage !== job.stage) || (total > 0 && done >= total && job.status !== "running");
+    const pct = total ? Math.round(100 * done / total) : (finished ? 100 : 0);
+    return `<div class="stage ${finished ? "done" : ""}">
+      <div class="name"><span>${stage.replace("_", " ")}</span><span class="num">${total ? `${done}/${total}` : ""}</span></div>
+      <div class="bar"><i style="width:${finished ? 100 : pct}%"></i></div></div>`;
+  }).join("");
+  $("#stubs").hidden = !job.stubs.length;
+  $("#stubs").textContent = `Stubbed stages: ${job.stubs.join(", ")} — these numbers are not from real audio.`;
+  $("#error").hidden = !job.error;
+  $("#error").textContent = job.error || "";
+}
+
+async function loadTrack(id) {
+  try { state.track = await api(`/api/jobs/${id}/track`); } catch (err) { return; }
+  renderResult();
+  renderRows();
+}
+
+function renderResult() {
+  const { summary: s, exports } = state.track;
+  $("#resultPanel").hidden = $("#segmentsPanel").hidden = false;
+  const card = (n, l) => `<div class="card"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+  $("#cards").innerHTML =
+    card(`${s.fitted}/${s.segments}`, "segments fit their budget") +
+    card(s.escalated, "need an author") +
+    card(s.drafts_kept, "MT draft kept as-is") +
+    card(s.shortened, "shortened by the LLM") +
+    card(`${s.within_drift}/${s.segments}`, "audio within 250 ms") +
+    card(`${fmt(s.max_drift, 2)}s`, "worst audio overrun") +
+    card(`${fmt(s.median_pause, 2)}s`, "median pause left") +
+    card(fmt(s.mean_rate_ratio, 2), "mean rate vs target");
+
+  const names = Object.keys(exports);
+  const video = names.find((n) => /-dub\.(webm|mp4)$/.test(n));
+  const wav = names.find((n) => /-dub\.wav$/.test(n));
+  const srt = names.find((n) => n.endsWith(".srt"));
+  if (video) {
+    $("#player").innerHTML = `<video controls preload="metadata" src="${exports[video]}"></video>`;
+    if (srt) attachSubtitles($("#player video"), exports[srt]);
+  } else if (wav) {
+    $("#player").innerHTML = `<p class="muted">No base video was given — the dubbed track on its own:</p><audio controls src="${exports[wav]}"></audio>`;
+  } else {
+    $("#player").innerHTML = `<p class="muted">No mixdown was produced.</p>`;
+  }
+  $("#downloads").innerHTML = `<div class="muted" style="margin-bottom:4px">Downloads</div>` +
+    names.filter((n) => exports[n]).map((n) => `<a href="${exports[n]}" download>${esc(n)}</a>`).join("");
+}
+
+async function attachSubtitles(video, srtUrl) {
+  // Browsers only take WebVTT in <track>; SRT differs in the header and the decimal comma.
+  const srt = await (await fetch(srtUrl)).text();
+  const vtt = "WEBVTT\n\n" + srt.replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2");
+  const track = document.createElement("track");
+  Object.assign(track, { kind: "subtitles", label: "Tamil", srclang: "ta", default: true,
+    src: URL.createObjectURL(new Blob([vtt], { type: "text/vtt" })) });
+  video.appendChild(track);
+}
+
+const FILTERS = {
+  all: () => true,
+  escalated: (r) => !r.fitted,
+  drift: (r) => r.within_drift === false,
+  shortened: (r) => r.stage === "shortened",
+  draft: (r) => r.stage === "draft",
+};
+
+$("#filters").addEventListener("click", (e) => {
+  if (!e.target.dataset.f) return;
+  state.filter = e.target.dataset.f;
+  for (const b of $("#filters").children) b.classList.toggle("active", b === e.target);
+  renderRows();
+});
+
+function renderRows() {
+  const rows = state.track.rows.filter(FILTERS[state.filter]);
+  if (!rows.length) { $("#rows").innerHTML = `<tr><td colspan="7" class="empty">Nothing here.</td></tr>`; return; }
+  $("#rows").innerHTML = rows.map((r) => {
+    const drift = r.drift === null ? "" :
+      `<div class="${r.within_drift ? "under" : "over"}">${r.drift > 0 ? "+" : ""}${fmt(r.drift, 2)}s</div>`;
+    const tags = (r.stage ? `<span class="tag ${r.stage}">${r.stage === "draft" ? "MT draft" : r.stage}</span> ` : "") +
+      (r.cue ? `<span class="tag cue">clip</span>` : "");
+    const editing = state.editing === r.id;
+    const tamil = editing
+      ? `<textarea id="edit-${r.id}">${esc(r.text)}</textarea>`
+      : `<div>${esc(r.text) || "<em class='muted'>no translation</em>"}</div>` +
+        (r.draft && r.draft !== r.text ? `<div class="draft" title="IndicTrans2 draft">MT: ${esc(r.draft)}</div>` : "");
+    return `<tr class="${r.fitted && r.within_drift !== false ? "ok" : "bad"}">
+      <td class="id">${r.id}<div class="muted">${clock(r.start)}</div></td>
+      <td class="num">${fmt(r.budget)}s<div class="muted">${r.units} units</div><div class="muted">needs ${fmt(r.predicted)}s</div></td>
+      <td>${esc(r.source)}</td>
+      <td>${tamil}${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}</td>
+      <td class="num">${r.actual === null ? "" : `${fmt(r.actual, 2)}s`}${drift}
+        ${r.audio ? `<button data-play="${r.audio}" title="Play this clip">&#9654;</button>` : ""}</td>
+      <td>${tags}</td>
+      <td class="actions">${editing
+        ? `<button class="primary" data-save="${r.id}">Save &amp; regenerate</button><button data-cancel>Cancel</button>`
+        : `<button data-edit="${r.id}">Edit</button><button data-redo="${r.id}" title="Re-run translation and voice for this segment">Redo</button>`}</td>
+    </tr>`;
+  }).join("");
+}
+
+let clipPlayer = new Audio();
+$("#rows").addEventListener("click", async (e) => {
+  const t = e.target.closest("button");
+  if (!t) return;
+  if (t.dataset.play) { clipPlayer.pause(); clipPlayer = new Audio(t.dataset.play); clipPlayer.play(); }
+  if (t.dataset.edit) { state.editing = t.dataset.edit; renderRows(); $(`#edit-${t.dataset.edit}`).focus(); }
+  if (t.dataset.cancel !== undefined) { state.editing = null; renderRows(); }
+  if (t.dataset.save || t.dataset.redo) {
+    const id = t.dataset.save || t.dataset.redo;
+    const body = t.dataset.save ? { text: $(`#edit-${id}`).value } : {};
+    t.disabled = true; t.textContent = "Working…";
+    try {
+      state.track = await api(`/api/jobs/${state.job.id}/segments/${id}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      state.editing = null;
+      renderResult(); renderRows();
+    } catch (err) {
+      alert(err.message); t.disabled = false; t.textContent = "Retry";
+    }
+  }
+});
+
+init();
+</script>
+</body>
+</html>

@@ -1,26 +1,79 @@
-# Spoken Tutorial Generator - backend
+# Spoken Tutorial dubbing - backend
 
-Turns a Spoken Tutorial timed script into segments, action cues and per-segment
-time budgets, validated against the Dubbers' Checklist.
+Takes an English Spoken Tutorial timed script (and optionally its video) to a
+dubbed Tamil track that fits the original video's timing:
 
-## Run it
+```
+parse -> translate (IndicTrans2 draft, Sarvam LLM shortens) -> synthesise (Sarvam)
+      -> fit audio pace -> align (VAD) -> timeline -> QA -> export (SRT, mixdown, video)
+```
+
+## Quick start
+
+```bash
+python -m venv .venv && .venv/Scripts/activate      # from the repository root
+pip install -r backend/requirements.txt
+
+# Local machine translation (optional, ~1 GB with CPU torch):
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r backend/requirements-mt.txt
+huggingface-cli login     # IndicTrans2 is gated: accept its licence on huggingface.co first
+
+cp .env.example .env      # then fill in SARVAM_API_KEY (one key: shortening and voice)
+```
+
+### The review UI
 
 ```bash
 cd backend
-python -m app.cli "../Timed-script-sample-english.docx" --language en --duration 663.2
-python -m app.cli "../Tamil-script-sample.docx" --language ta --duration 663.2
-python tests/test_parser.py        # or: pytest tests
-python tests/test_pipeline.py
-python tests/test_media.py         # skips if the client videos are absent
+uvicorn app.api.main:app --reload
+# open http://localhost:8000
 ```
 
-`--duration` is the length of the base video. It sets the last segment's budget;
-without it the parser assumes the script's median window. Better, pass the video
-itself and let the duration be read from the container:
+Pick a sample script (and video, if `samples/Overview-of-Synfig-English.webm`
+is present), choose providers, run. The page shows each stage's progress, then
+the dubbed video with Tamil subtitles, summary numbers, and every segment:
+English, IndicTrans2 draft, final Tamil, budget, measured audio and drift. Any
+segment can be rewritten by hand or redone, and only that segment is
+regenerated (HLD UC-03). The header shows which keys and models this machine
+has; with none of them the stub providers still run end to end.
+
+### The command line
 
 ```bash
-python -m app.cli "../Timed-script-sample-english.docx" --language en \n    --video ../Overview-of-Synfig-English.webm
+cd backend
+# real chain
+python -m app.run ../samples/Timed-script-sample-english.docx --language ta \
+    --translator indictrans+sarvam --tts sarvam --aligner vad \
+    --video ../samples/Overview-of-Synfig-English.webm --export srt manifest mixdown --workers 4
+
+# stubs only - no keys, no downloads
+python -m app.run ../samples/Tamil-script-sample.docx --language ta --duration 663.2
+
+python -m app.cli ../samples/Timed-script-sample-english.docx --language en --duration 663.2
+python -m app.calibrate_voice --script ../samples/Tamil-script-sample.docx --language ta
+python -m pytest tests
 ```
+
+### Providers
+
+Every stage sits behind a Protocol (`app/pipeline/interfaces.py`) and is chosen
+by name from `app/pipeline/registry.py`, so switching provider is
+configuration (HLD UC-07). Stubs stay registered beside the real ones and
+declare `is_stub = True`; every run names the stubs still in the chain.
+
+| stage | real | stub |
+|---|---|---|
+| translate | `indictrans+sarvam` - IndicTrans2 drafts locally, sarvam-105b edits overruns; `sarvam` - LLM only; `indictrans+groq` / `groq` - the same on GPT-OSS 120B | `echo` |
+| synthesise | `sarvam` - Bulbul v2, with pace correction | `silent` |
+| align | `vad` - Step 1's speech detector | `clip-bounds` |
+| export | `srt`, `mixdown` (dub WAV + remuxed video) | `manifest` (stand-in for OTIO / Kdenlive) |
+
+Layout: `app/parsing` (script reader, cues, checklist rules), `app/duration`
+(rate model, syllable counter, audio measurement), `app/translate`,
+`app/tts`, `app/align`, `app/timeline` (placement, QA), `app/export`,
+`app/pipeline` (runner, registry, track store), `app/api` (FastAPI + page),
+`app/config.py` (settings and secrets), `app/http.py` (shared retrying POST).
 
 ## What it does that a naive parser does not
 
@@ -85,7 +138,7 @@ Tamil as on English. Word-level alignment is a separate job, needed later to
 measure drift on generated audio.
 
 ```bash
-python -m app.calibrate --script ../Timed-script-sample-english.docx                         --video  ../Overview-of-Synfig-English.webm --language en
+python -m app.calibrate --script ../samples/Timed-script-sample-english.docx                         --video  ../samples/Overview-of-Synfig-English.webm --language en
 ```
 
 Measured on the Synfig pair, embedded-clip windows excluded:
@@ -116,27 +169,13 @@ It also revised the headline gap downwards: Tamil needs **13% more speaking
 time than exists**, not the 37% the script-only model implied. Rephrasing can
 close 13%.
 
-## Step 2 - the pipeline, end to end
+## The pipeline
 
-```bash
-python -m app.run ../Tamil-script-sample.docx --language ta --duration 663.2
-```
-
-`parse -> translate -> synthesise -> align -> timeline -> QA -> export`, running
-today with the hard stages stubbed. Every stage sits behind a Protocol in
-`app/pipeline/interfaces.py` and is chosen by name from `app/pipeline/registry.py`,
-so replacing a stub is a config change (HLD UC-07), and `run_segments` re-runs a
-single segment without a full re-render (UC-03).
-
-| stage | today | replaced by |
-|---|---|---|
-| translate | `echo` (stub, passes text through) | Module 2 + an LLM |
-| synthesise | `silent` (stub, silence of predicted length) | Piper, then Sarvam |
-| align | `clip-bounds` (stub) / **`vad` (real)** | word-level WhisperX / MFA |
-| export | **`srt` (real)**, `manifest` (stand-in) | OpenTimelineIO / Kdenlive XML |
-
-Every run prints which stages were stubbed, so no demo can mistake a stub's
-arithmetic for real audio.
+`app/pipeline/runner.py` owns the order and the plumbing, not the intelligence.
+Translation and synthesis - the metered stages - run concurrently with
+`--workers N` / `max_workers`. Every run persists its full state to
+`out/<lang>/track.json` (`app/pipeline/store.py`), which is what lets a later
+request regenerate one segment without re-running the rest.
 
 ### The budget the pipeline actually targets
 
@@ -167,26 +206,48 @@ compared on equal terms rather than by two implementations that could disagree.
 
 ## Module 2 - duration-constrained translation
 
-```bash
-echo "GROQ_API_KEY=gsk_..." > ../.env          # never committed
-python -m app.run ../Timed-script-sample-english.docx        --language ta --duration 663.2 --translator groq
-```
-
-GPT-OSS 120B on Groq, wrapped in the fitting loop:
+Two models, each doing the part it is good at:
 
 ```
-speaking budget (s) -> target aksharas -> ask the model
-                                              |
-                                     measure it OURSELVES
-                                              |
-                          over? -> "you used 22, the limit is 14" -> ask again
-                                              |
-                                    fits -> keep it
-                                              |
-                      3 attempts, still over -> escalate to the author
+IndicTrans2 (local, free) -> draft
+          |
+   measure it OURSELVES  -- fits, on-screen terms intact --> keep it (no LLM call)
+          |
+     over budget, or a menu name got translated
+          |
+sarvam-105b: "edit this draft; it uses 22 aksharas, the limit is 14"
+          |
+   measure again -> fits -> keep  |  3 rounds, still over -> escalate to the author
 ```
 
-Three things decide whether this works.
+The shortener is Sarvam's `sarvam-105b` (`SarvamChat` in `app/translate/llm.py`,
+chat completions v1), so a single `SARVAM_API_KEY` pays for both shortening and
+speech. GPT-OSS 120B on Groq is kept behind the same `ChatModel` interface as
+`--translator indictrans+groq`.
+
+IndicTrans2 (`app/translate/indictrans.py`, the distilled 200M English->Indic
+checkpoint) runs on CPU and translates the whole track in batches before the
+per-segment loop starts. Drafts are cached in `out/translation-cache.json` like
+every LLM answer. The LLM only ever sees segments the draft could not carry,
+which on the client's script is about 60% of segments rather than all of them.
+
+On-screen terms - the script's bold text: menu names, buttons, keys - must
+stay in Latin script exactly as written, because the learner matches them
+against the screen. Unprotected, IndicTrans2 renders "Synfig" as "of
+synchronisation" and transliterates shell commands. So `app/translate/terms.py`
+swaps them for `TERMX1`-style placeholders before translation and restores
+them after; IndicTrans2 carries the placeholders through and attaches Tamil
+case endings to them naturally. A segment's own bold terms are protected as
+often as they were bolded (S-021 bolds the key "Enter", not the verb that opens
+the next sentence); a term bold only elsewhere is protected only if it is a
+name rather than a word whose lower-case form the script also uses ("Synfig"
+yes, "Next" no). Commands, URLs, file names and versions are always protected.
+A draft that still lost a term goes to the LLM to have it restored.
+
+`--translator sarvam` is the LLM-only path (the model translates from
+scratch inside the same loop), kept for comparison.
+
+Three things decide whether the loop works, on either path.
 
 **The budget is the speaking budget.** `RateModel.speaking_budget` - the window
 less the reserved pause - not the window. Targeting the window buys back about
@@ -203,8 +264,9 @@ what speaking rate we assume, so seconds are a target it cannot evaluate. Each
 request carries the akshara budget and an approximate word count derived from
 the 2.75 aksharas-per-word measured in the client's Tamil script.
 
-Prompts encode the client's own rules (`app/translate/prompts.py`): bold terms
-transliterated rather than translated, interface words kept in English, simple
+Prompts encode the client's own rules (`app/translate/prompts.py`): on-screen
+terms kept in Latin script exactly as written, everyday computing words
+allowed in Tamil script, simple
 vocabulary, one instruction per sentence, two sentences may merge.
 
 ### What the job actually requires
@@ -221,80 +283,55 @@ Measured against the client's Tamil, per segment, to hit a comfortable pace:
 Median cut: **24%**. So the loop can be expected to fit most segments and to
 escalate a stubborn tail. Those escalations are the point, not a failure: a
 line needing to lose half its content needs a person to decide what goes, and
-`--translator groq` prints them worst-first with the source, the best attempt
-and the shortfall.
+the CLI prints them worst-first with the source, the best attempt and the
+shortfall; the UI's "Needs an author" filter lists them for editing.
 
 Translations are cached on disk (`out/translation-cache.json`), keyed on source,
 language, budget and model - so correcting one segment does not re-pay for the
 other ninety-four, and a changed budget correctly misses rather than returning
 text fitted to the old one.
 
+## Speech - Sarvam Bulbul, and closing the loop on duration
+
+`app/tts/sarvam.py` calls `POST https://api.sarvam.ai/text-to-speech` (key in
+`SARVAM_API_KEY`, model `bulbul:v3` and voice `shubh` by default - v2 is
+deprecated; `SARVAM_TTS_MODEL` / `SARVAM_SPEAKER` override). The clip's
+duration is measured from the decoded audio, never assumed, and clips are
+cached in `out/tts-cache/` by text, voice, pace and model.
+
+Two steps make "fits on paper" agree with "fits in the audio":
+
+1. **Calibrate the voice.** The rate model was measured on the client's human
+   narrator; a synthetic voice has its own pace. `python -m app.calibrate_voice`
+   synthesises the client's own Tamil lines, measures the speech with the Step
+   1 detector, and saves the voice's rate to `out/voice-rates.json`. Runs with
+   that voice then budget text at the rate it actually speaks.
+2. **Correct the pace.** After synthesis, any clip whose measured speech
+   overruns its budget by more than 250 ms is requested again at the pace
+   that would fit, capped at +10% (HLD S14's rate tolerance). What still
+   overruns is flagged on the segment: the text has to get shorter.
+
+## Mixdown - something to watch
+
+`--export mixdown` places every clip at its timeline start (lead-in trimmed)
+on a track the length of the base video, carries the base video's own audio
+through the embedded-clip windows, and writes `<lang>-dub.wav`. Given
+`--video`, it also remuxes the picture with the dub into `<lang>-dub.webm`
+(or `.mp4`), copying the video stream untouched.
+
 ## Known limitations
 
-- Bare numerals (`16.04`, `0`) are not counted as syllables - how they are
-  spoken is language-specific. Needs a spoken-form expansion once the client
-  confirms the convention.
+- Numerals are the largest remaining error source in the duration model:
+  "Synfig version 1.0.2" counts as 4 syllables but takes 3.4 s to say. Bulbul
+  v3 has no numeral preprocessing, so how it reads them is up to the model.
 - Rates are calibrated from one script pair. Recalibrate as more arrive.
-- Numerals are the largest remaining error source: "Synfig version 1.0.2" counts
-  as 4 syllables but takes 3.4 s to say. Needs spoken-form expansion per language.
-- Prediction error is MAE 0.63 s (down from 1.11 s), still short of the 250 ms
-  drift criterion - which is measured post-synthesis by alignment, not by this.
-- Only the `Time | Narration` timed-script format is handled. The wiki
-  `Visual Cue | Narration` format is a separate reader.
-
----
-
-## The pipeline
-
-`parse -> translate -> synthesise -> align -> timeline -> QA -> export`, running
-end to end today with the hard stages faked:
-
-```bash
-python -m app.run "../Timed-script-sample-english.docx" --language en --duration 663.2 --out ../out
-python -m app.run "../Tamil-script-sample.docx" --language ta --duration 663.2 --out ../out
-```
-
-That writes 95 WAV clips, an SRT and a project manifest per language, and
-prints the QA report. Every run names the stubs still in the chain, so no demo
-leaves anyone unsure which numbers are real.
-
-### Why stubs first
-
-Built module by module, the 24 September MVP arrives as four polished stages
-and nothing to show. So the chain runs from day one with the intelligence
-faked, and each fake is replaced behind its interface:
-
-| stage | today | replaced by |
-|---|---|---|
-| translate | `EchoTranslator` - text unchanged | Module 2, duration-constrained LLM translation |
-| synthesise | `SilentTTS` - silence of exactly the predicted length | Piper locally, then Sarvam AI |
-| align | `ClipBoundsAligner` - the clip's own bounds | WhisperX / MFA on real audio |
-| timeline | anchor at each segment start | hold insertion at non-action gaps |
-| export | SRT (real) + JSON manifest | OpenTimelineIO / Kdenlive XML |
-
-The interfaces are in `app/pipeline/interfaces.py` and every provider is
-resolved by name through `app/pipeline/registry.py` - so switching provider is
-configuration, not code (HLD UC-07), and the team works in parallel against
-fixed shapes.
-
-### What the stub run already tells you
-
-The echo run reproduces Module 1's analysis exactly - 42 of 95 English
-segments over budget, 83 of 95 Tamil, 536 s against 770 s of audio - which is
-the point: it is a baseline known to be right, so a real translator's
-improvement is measurable rather than asserted.
-
-The English SRT shows subtitles overlapping wherever a segment overruns its
-window. That is honest: it is what the timed script asks for and nothing has
-fitted the text yet.
-
-### Not done here
-
-- Holds are not inserted; `hold_after` is always 0.
-- Drift is `actual - budget`, not drift against the base video. It becomes the
-  real thing when forced alignment lands.
-- No API and no UI yet - the runner is a library plus a CLI, with a progress
-  hook (`ProgressHook`) shaped for the job-progress endpoint.
+- Holds are not inserted at non-action gaps yet (`hold_after` is always 0).
+- Drift is measured per clip against its budget, not word-by-word against the
+  video; that needs forced alignment (WhisperX / MFA).
+- Embedded clips carry the base video's (English) audio; a Tamil release needs
+  the Tamil editions of those source tutorials.
+- Only the `Time | Narration` timed-script format is handled.
+- The UI is a single-user demo: jobs live in memory and in `out/jobs/`.
 
 ---
 
@@ -315,16 +352,16 @@ What that established on the client's Synfig pair:
 | the two tracks | 70 ms apart - one base video, reused, exactly as the client describes |
 | the 11 action cues | all anchored inside the video |
 
-The videos are gitignored (large, and not ours to redistribute), so
-`tests/test_media.py` skips rather than fails when they are absent.
+The videos are gitignored (large, and not ours to redistribute); put them in
+`samples/` beside the scripts. `tests/test_media.py` skips rather than fails when they are absent.
 
 ### Validating a track by eye
 
 The strongest check available on the pipeline needs no toolchain at all:
 
 ```bash
-python -m app.run "../Timed-script-sample-english.docx" --language en \
-    --video ../Overview-of-Synfig-English.webm --out ../out
+python -m app.run ../samples/Timed-script-sample-english.docx --language en \
+    --video ../samples/Overview-of-Synfig-English.webm --out ../out
 ```
 
 Open the .webm in VLC and drop `out/en/en.srt` onto it. Each subtitle should

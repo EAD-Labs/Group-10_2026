@@ -4,21 +4,23 @@ The translator does not know which model it is talking to. That matters for
 two reasons: the loop has to be testable without spending credits or reaching
 the network, and the client's provider choice is theirs to change.
 
-Groq serves the open-weights GPT-OSS 120B model over an OpenAI-compatible
-endpoint, which is what `GroqChat` speaks.
+Both providers in use speak the OpenAI chat-completions shape, so one client
+serves them: `SarvamChat` (sarvam-105b - the default, since the same Sarvam key
+already pays for speech) and `GroqChat` (GPT-OSS 120B, kept as an alternative).
 """
 
 from __future__ import annotations
 
-import os
-import re
-import time
 from typing import Protocol, runtime_checkable
+
+from ..config import find_dotenv, load_dotenv, settings  # noqa: F401 - re-exported
+from ..http import ProviderError, RetryWith, post_with_retry
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b"
 
-RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504}
+SARVAM_CHAT_ENDPOINT = "https://api.sarvam.ai/v1/chat/completions"
+"""v1, not v2: v2 is behind beta access."""
 
 DEFAULT_MAX_TOKENS = 500
 """Cap on the reply, because the provider counts RESERVED tokens against the
@@ -35,10 +37,8 @@ DEFAULT_REASONING_EFFORT = "low"
 and reasoning tokens are the main thing standing between us and the rate
 limit. Kept configurable because a harder target language may want more."""
 
-RETRY_AFTER_HINT = re.compile(r"try again in ([0-9.]+)s", re.IGNORECASE)
 
-
-class LLMError(RuntimeError):
+class LLMError(ProviderError):
     """The provider could not be reached, or refused the request."""
 
 
@@ -60,50 +60,20 @@ class ChatModel(Protocol):
     def complete(self, system: str, user: str, *, temperature: float = 0.3) -> str: ...
 
 
-def find_dotenv(filename: str = ".env") -> str | None:
-    """Locate .env at the working directory or any parent.
+class OpenAICompatibleChat:
+    """Any OpenAI-shaped chat-completions endpoint. Subclasses name the
+    endpoint, the key and how the key is sent."""
 
-    The file lives at the repository root but commands are run from backend/,
-    so looking only in the working directory finds nothing and the failure
-    reads as a missing key rather than a missing file.
-    """
-    directory = os.path.abspath(os.getcwd())
-    while True:
-        candidate = os.path.join(directory, filename)
-        if os.path.exists(candidate):
-            return candidate
-        parent = os.path.dirname(directory)
-        if parent == directory:
-            return None
-        directory = parent
-
-
-def load_dotenv(path: str | None = None) -> None:
-    """Read KEY=VALUE lines into the environment if the file exists.
-
-    Secrets stay out of source control (HLD S10.5) but still need to reach a
-    developer's shell; this is the least ceremonious way to do that. Existing
-    environment variables win, so a real deployment's injected secrets are
-    never overwritten by a stray file.
-    """
-    path = path or find_dotenv()
-    if not path or not os.path.exists(path):
-        return
-    with open(path, encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-class GroqChat:
-    """GPT-OSS 120B via Groq's OpenAI-compatible chat completions endpoint."""
+    endpoint: str = ""
+    provider: str = ""
+    key_variable: str = ""
+    default_model: str = ""
+    null_disables_reasoning = False
+    """Some providers reason by default unless sent an explicit null."""
 
     def __init__(
         self,
-        model: str = GROQ_DEFAULT_MODEL,
+        model: str | None = None,
         *,
         api_key: str | None = None,
         timeout: float = 60.0,
@@ -111,14 +81,19 @@ class GroqChat:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         reasoning_effort: str | None = DEFAULT_REASONING_EFFORT,
     ) -> None:
-        load_dotenv()
-        self.model = model
-        self.name = f"groq:{model}"
+        self.model = model or self.default_model
+        self.name = f"{self.provider}:{self.model}"
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
-        self._api_key = api_key or os.environ.get("GROQ_API_KEY", "")
+        self._api_key = api_key if api_key is not None else self._configured_key()
+
+    def _configured_key(self) -> str:
+        raise NotImplementedError
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self._api_key}"}
 
     @property
     def available(self) -> bool:
@@ -127,11 +102,9 @@ class GroqChat:
     def complete(self, system: str, user: str, *, temperature: float = 0.3) -> str:
         if not self._api_key:
             raise LLMError(
-                "GROQ_API_KEY is not set. Put it in the environment or in a .env "
+                f"{self.key_variable} is not set. Put it in the environment or in a .env "
                 "file at the repository root (see .env.example). Never commit it."
             )
-
-        import httpx
 
         payload = {
             "model": self.model,
@@ -142,59 +115,29 @@ class GroqChat:
             "temperature": temperature,
             "max_tokens": self.max_tokens,
         }
-        if self.reasoning_effort:
+        if self.reasoning_effort or self.null_disables_reasoning:
             payload["reasoning_effort"] = self.reasoning_effort
-        headers = {"Authorization": f"Bearer {self._api_key}"}
 
-        last_error = ""
-        budget = self.max_tokens
-        for attempt in range(self.max_retries):
-            wait = 2.0 * (attempt + 1)
-            payload["max_tokens"] = budget
+        def parse(response) -> str:
             try:
-                response = httpx.post(
-                    GROQ_ENDPOINT, json=payload, headers=headers, timeout=self.timeout
-                )
-            except httpx.HTTPError as exc:
-                last_error = str(exc)
-            else:
-                if response.status_code == 200:
-                    try:
-                        return self._extract(response.json())
-                    except TruncatedReply as exc:
-                        # The reasoning outgrew the budget. A longer source
-                        # line needs more room to think; give it more rather
-                        # than failing a segment that is otherwise fine.
-                        last_error = str(exc)
-                        budget = min(budget * 2, 2000)
-                        wait = 0.0
-                        if attempt < self.max_retries - 1:
-                            continue
-                        raise LLMError(last_error) from exc
-                last_error = f"HTTP {response.status_code}: {response.text[:300]}"
-                if response.status_code not in RETRY_STATUS:
-                    break
-                # The provider says exactly how long to wait; guessing shorter
-                # just burns an attempt and arrives to the same refusal.
-                wait = self._retry_after(response, wait)
+                return self._extract(response.json())
+            except TruncatedReply as exc:
+                # The reasoning outgrew the budget. A longer source line needs
+                # more room to think; give it more rather than failing a
+                # segment that is otherwise fine.
+                payload["max_tokens"] = min(payload["max_tokens"] * 2, 2000)
+                raise RetryWith(payload, str(exc)) from exc
 
-            if attempt < self.max_retries - 1:
-                time.sleep(wait)
-
-        raise LLMError(f"{self.name} failed after {self.max_retries} attempts: {last_error}")
-
-    @staticmethod
-    def _retry_after(response, fallback: float) -> float:
-        header = response.headers.get("retry-after")
-        if header:
-            try:
-                return min(float(header) + 0.5, 30.0)
-            except ValueError:
-                pass
-        hint = RETRY_AFTER_HINT.search(response.text or "")
-        if hint:
-            return min(float(hint.group(1)) + 0.5, 30.0)
-        return fallback
+        return post_with_retry(
+            self.endpoint,
+            payload,
+            headers=self._headers(),
+            parse=parse,
+            label=self.name,
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            error=LLMError,
+        )
 
     @staticmethod
     def _extract(body: dict) -> str:
@@ -213,6 +156,53 @@ class GroqChat:
                 f"max_tokens"
             )
         return content
+
+
+class GroqChat(OpenAICompatibleChat):
+    """GPT-OSS 120B via Groq's OpenAI-compatible endpoint."""
+
+    endpoint = GROQ_ENDPOINT
+    provider = "groq"
+    key_variable = "GROQ_API_KEY"
+    default_model = GROQ_DEFAULT_MODEL
+
+    def _configured_key(self) -> str:
+        return settings().groq_api_key
+
+
+class SarvamChat(OpenAICompatibleChat):
+    """Sarvam's sarvam-105b, an Indic-first model, via chat completions v1.
+
+    The docs list both `Authorization: Bearer` and `api-subscription-key` as
+    the auth header in different places, so both are sent with the same key.
+
+    Reasoning is switched OFF, with an explicit `"reasoning_effort": null`.
+    Sarvam reasons by default (medium), and even "low" is not low: measured on
+    a one-line shortening request, "low" spent 799 of 800 tokens reasoning and
+    returned nothing (finish_reason "length"); null returned the edit in 11
+    tokens and 0.7 s. Omitting the field is not the same as null - omitted
+    means the default, which is what failed 10 of 11 shortenings in the first
+    full run."""
+
+    endpoint = SARVAM_CHAT_ENDPOINT
+    provider = "sarvam"
+    key_variable = "SARVAM_API_KEY"
+
+    null_disables_reasoning = True
+
+    def __init__(self, model: str | None = None, **options) -> None:
+        options.setdefault("max_tokens", 800)
+        options.setdefault("reasoning_effort", None)
+        super().__init__(model or settings().sarvam_llm_model, **options)
+
+    def _configured_key(self) -> str:
+        return settings().sarvam_api_key
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._api_key}",
+            "api-subscription-key": self._api_key,
+        }
 
 
 class ScriptedChat:

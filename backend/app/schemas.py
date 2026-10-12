@@ -170,6 +170,16 @@ class TranslatedSegment(BaseModel):
 
     translator: str = "echo"
 
+    draft_text: str | None = None
+    """The machine translation before any shortening, when the translator
+    drafts first (IndicTrans2) and edits second. Shown beside `text` so the
+    reviewer can see what the shortening cost."""
+
+    stage: Literal["draft", "shortened", "escalated", "failed"] | None = None
+    """Where the final text came from: the draft fitted as it was, the LLM
+    shortened it to fit, nothing fitted (best effort kept), or no candidate at
+    all. None for translators that do not distinguish."""
+
     note: str | None = None
     """Why this segment needs a human, when it does: how far over it still is
     after the retry cap, or what went wrong with the provider. This is what the

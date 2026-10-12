@@ -57,6 +57,10 @@ class TTSProvider(Protocol):
     - duration is measured from the written file, never assumed, because the
     gap between predicted and actual duration is exactly what the QA report
     exists to surface.
+
+    A provider that can change its speaking rate declares `supports_pace =
+    True` and accepts `pace=` (1.0 = natural) on `synthesize`; the runner uses
+    it to pull an overrunning clip back inside its budget, within +/-10%.
     """
 
     name: str

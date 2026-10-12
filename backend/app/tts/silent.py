@@ -44,6 +44,7 @@ class SilentTTS:
     """Produces a silent clip of the predicted length."""
 
     name = "silent"
+    is_stub = True
 
     def __init__(self, sample_rate: int = SAMPLE_RATE) -> None:
         self.sample_rate = sample_rate

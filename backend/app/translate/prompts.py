@@ -44,10 +44,33 @@ def approximate_words(units: float, code: str) -> int:
 
 def build_system_prompt(target_language: str) -> str:
     language = language_name(target_language)
-    units = unit_name(target_language)
-    return f"""You translate Spoken Tutorial narration from English into {language}.
+    return (
+        f"You translate Spoken Tutorial narration from English into {language}.\n\n"
+        + _context_and_rules(target_language)
+    )
 
-A Spoken Tutorial is a step-by-step software lesson. The learner watches the \
+
+def build_editor_system_prompt(target_language: str) -> str:
+    """For the edit path: a machine translation already exists and the job is
+    to make it fit, not to translate from scratch.
+
+    Starting from the draft rather than the English keeps the model's work to
+    the part it is needed for - cutting - and keeps vocabulary the MT model
+    chose well instead of re-rolling every word."""
+    language = language_name(target_language)
+    return (
+        f"You edit machine-translated {language} narration for Spoken Tutorials "
+        f"so that it fits a time budget. You are given the English original and "
+        f"a {language} draft; correct the draft where it mistranslates, and make "
+        f"it shorter where it is too long.\n\n"
+        + _context_and_rules(target_language)
+    )
+
+
+def _context_and_rules(target_language: str) -> str:
+    language = language_name(target_language)
+    units = unit_name(target_language)
+    return f"""A Spoken Tutorial is a step-by-step software lesson. The learner watches the \
 screen and copies each action, so the narration is locked to what is happening \
 in the video. The audience may be as young as Class V.
 
@@ -104,6 +127,69 @@ def build_first_request(
 Budget: at most {target_units} {units} (roughly {words} words or fewer).
 
 Translate it into {language_name(target_language)} within that budget."""
+
+
+def build_edit_request(
+    source_text: str,
+    target_language: str,
+    target_units: int,
+    draft: str,
+    draft_units: int,
+    bold_terms: list[str] | None = None,
+    missing_terms: list[str] | None = None,
+) -> str:
+    """Ask for the draft to be brought inside the budget, and any on-screen
+    term the MT model translated to be restored in Latin script."""
+    units = unit_name(target_language)
+    language = language_name(target_language)
+    words = approximate_words(target_units, target_language)
+    problems = []
+    if draft_units > target_units:
+        excess = draft_units - target_units
+        percent = round(100 * excess / draft_units)
+        problems.append(
+            f"It uses {draft_units} {units}; the limit is {target_units}, so it must "
+            f"lose at least {excess} {units} (about {percent}% shorter)."
+        )
+    if missing_terms:
+        problems.append(
+            "These on-screen terms are missing or were translated; they must appear "
+            "exactly as written, in Latin script: " + ", ".join(missing_terms) + "."
+        )
+    keep = ""
+    if bold_terms:
+        keep = "\nKeep in Latin script exactly as written: " + ", ".join(sorted(set(bold_terms)))
+    problem = " ".join(problems)
+    return f"""English line:
+{source_text}
+{keep}
+
+{language} draft:
+{draft}
+
+{problem}
+
+Budget: at most {target_units} {units} (roughly {words} words or fewer).
+
+Rewrite the draft to fix this. Drop filler and repetition first; merge \
+clauses; use shorter everyday words. Keep every instruction the learner has to \
+follow. Reply with the {language} text only."""
+
+
+def missing_terms(text: str, terms: list[str] | None) -> list[str]:
+    """On-screen terms that did not survive into `text` verbatim.
+
+    Matched case-insensitively and whitespace-normalised, because the learner
+    is matching words against a screen and "Ctrl+Alt+T" vs "Ctrl + Alt + T" is
+    not a difference they will notice."""
+    from .terms import clean_term
+
+    if not terms:
+        return []
+    squash = lambda value: "".join(value.split()).casefold()  # noqa: E731
+    haystack = squash(text)
+    wanted = dict.fromkeys(clean_term(t) for t in terms)
+    return [term for term in wanted if squash(term) and squash(term) not in haystack]
 
 
 def build_retry_request(
