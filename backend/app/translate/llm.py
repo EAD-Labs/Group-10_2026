@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from ..config import find_dotenv, load_dotenv, settings  # noqa: F401 - re-exported
+from ..config import settings
 from ..http import ProviderError, RetryWith, post_with_retry
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"

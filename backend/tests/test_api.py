@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.api import main  # noqa: E402
+from app.api import jobs, main  # noqa: E402
 
 STUBS = {"translator": "echo", "tts": "silent", "duration": "663.2", "workers": "1"}
 
@@ -26,15 +26,16 @@ def _wait(client: TestClient, job_id: str) -> dict:
     raise AssertionError("job did not finish")
 
 
-def test_a_job_runs_and_a_segment_can_be_rewritten():
+def test_a_job_runs_and_a_segment_can_be_rewritten(monkeypatch):
     with tempfile.TemporaryDirectory() as out:
-        main.JOBS_DIR = os.path.abspath(out)
+        monkeypatch.setattr(jobs, "JOBS_DIR", os.path.abspath(out))
         client = TestClient(main.app)
 
         assert client.get("/").status_code == 200
         health = client.get("/api/health").json()
         assert {"indictrans+sarvam", "sarvam", "indictrans+groq"} <= set(health["translators"])
-        assert "Timed-script-sample-english.docx" in client.get("/api/samples").json()["scripts"]
+        scripts = [t["script"] for t in client.get("/api/library").json()["tutorials"]]
+        assert "Timed-script-sample-english.docx" in scripts
 
         created = client.post(
             "/api/jobs",
@@ -49,6 +50,8 @@ def test_a_job_runs_and_a_segment_can_be_rewritten():
 
         track = client.get(f"/api/jobs/{job['id']}/track").json()
         assert len(track["rows"]) == 95
+        assert track["summary"]["review"] == sum(r["review"] for r in track["rows"])
+        assert job["summary"]["segments"] == 95
         assert any(name.endswith("-dub.wav") for name in track["exports"])
         first = track["rows"][0]
         assert client.get(first["audio"]).status_code == 200
@@ -65,11 +68,11 @@ def test_a_job_runs_and_a_segment_can_be_rewritten():
         assert all(rows[k]["text"] == before[k] for k in before if k != target)
 
 
-def test_files_outside_the_job_are_not_served():
+def test_files_outside_the_job_are_not_served(monkeypatch):
     with tempfile.TemporaryDirectory() as out:
-        main.JOBS_DIR = os.path.abspath(out)
-        main.JOBS["x"] = main.Job(id="x", script_name="s", language="ta",
-                                  translator="echo", tts="silent", aligner="clip-bounds")
+        monkeypatch.setattr(jobs, "JOBS_DIR", os.path.abspath(out))
+        jobs.register(main.Job(id="x", script_name="s", language="ta",
+                                  translator="echo", tts="silent", aligner="clip-bounds"))
         client = TestClient(main.app)
         assert client.get("/api/jobs/x/files/..%2F..%2Fsecret.txt").status_code == 404
 

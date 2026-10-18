@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.api import main  # noqa: E402
+from app.api import jobs, main  # noqa: E402
 from app.api.library import Library, match_score, _words  # noqa: E402
 from tests._paths import ENGLISH_SCRIPT, TAMIL_SCRIPT  # noqa: E402
 
@@ -79,9 +79,9 @@ def test_languages_voices_and_library_endpoints():
     assert escape.status_code == 400
 
 
-def test_the_original_video_is_served_only_from_allowed_places():
+def test_the_original_video_is_served_only_from_allowed_places(monkeypatch):
     with tempfile.TemporaryDirectory() as out:
-        main.JOBS_DIR = os.path.abspath(out)
+        monkeypatch.setattr(jobs, "JOBS_DIR", os.path.abspath(out))
         client = TestClient(main.app)
         job = main.Job(id="orig", script_name="s.docx", language="ta", translator="echo",
                        tts="silent", aligner="clip-bounds", status="done")
@@ -89,7 +89,7 @@ def test_the_original_video_is_served_only_from_allowed_places():
         inside = os.path.join(job.folder, "upload.webm")
         with open(inside, "wb") as handle:
             handle.write(b"video")
-        main.JOBS[job.id] = job
+        jobs.register(job)
 
         job.video_path = inside
         assert client.get("/api/jobs/orig/original").content == b"video"
@@ -97,4 +97,4 @@ def test_the_original_video_is_served_only_from_allowed_places():
         assert client.get("/api/jobs/orig/original").status_code == 404
         job.video_path = None
         assert client.get("/api/jobs/orig/original").status_code == 404
-        del main.JOBS[job.id]
+        del jobs.JOBS[job.id]

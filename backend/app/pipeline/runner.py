@@ -20,7 +20,13 @@ from dataclasses import dataclass, field
 from typing import Callable, Sequence, TypeVar
 
 from ..duration.calibrate import calibrate, calibrated_rate
-from ..duration.model import DRIFT_TOLERANCE, RATE_TOLERANCE, RateModel, voice_key
+from ..duration.model import (
+    DRIFT_TOLERANCE,
+    RATE_TOLERANCE,
+    VOICE_RATES_PATH,
+    RateModel,
+    voice_key,
+)
 from ..parsing.parser import parse_script
 from ..schemas import (
     AlignmentResult,
@@ -95,8 +101,10 @@ class Providers:
     @property
     def stubs(self) -> list[str]:
         """Names of the stages still faked - every front end reports these, so
-        no demo leaves anyone unsure which numbers are real."""
-        every = [self.translator, self.tts, self.aligner, *self.exporters]
+        no demo leaves anyone unsure which numbers are real. Exporters are left
+        out: the manifest is a stand-in for a later project format and changes
+        nothing that is heard or measured."""
+        every = [self.translator, self.tts, self.aligner]
         return sorted({p.name for p in every if is_stub(p)})
 
 
@@ -115,10 +123,17 @@ def build_providers(config: PipelineConfig, script: ParsedScript | None = None) 
     if getattr(providers.tts, "supports_pace", False):
         providers.tts.pace = config.voice_pace
     if config.use_voice_rates and not is_stub(providers.tts):
-        speaker = config.voice or getattr(providers.tts, "speaker", None)
-        pace = getattr(providers.tts, "pace", 1.0)
-        config.rate_model = RateModel.for_voice(voice_key(providers.tts.name, speaker, pace))
+        config.rate_model = RateModel.for_voice(_voice_key(config, providers.tts))
     return providers
+
+
+def _speaker(config: PipelineConfig, tts: TTSProvider) -> str | None:
+    return config.voice or getattr(tts, "speaker", None)
+
+
+def _voice_key(config: PipelineConfig, tts: TTSProvider) -> str:
+    """Where this track's voice - provider, speaker, pace - keeps its rate."""
+    return voice_key(tts.name, _speaker(config, tts), getattr(tts, "pace", 1.0))
 
 
 def _noop(stage: str, done: int, total: int, item=None) -> None:
@@ -184,14 +199,12 @@ def ensure_voice_rate(
     THIS script's own MT drafts before translation starts - the drafts are
     needed by the translate stage anyway, so the cost is ~20 TTS calls, once.
     """
-    from ..duration.model import VOICE_RATES_PATH
-
     path = rates_path or VOICE_RATES_PATH
     tts = providers.tts
     if not config.use_voice_rates or is_stub(tts):
         return None
-    speaker = config.voice or getattr(tts, "speaker", None)
-    key = voice_key(tts.name, speaker, getattr(tts, "pace", 1.0))
+    speaker = _speaker(config, tts)
+    key = _voice_key(config, tts)
     known = calibrated_rate(key, config.language, path)
     if known:
         return known

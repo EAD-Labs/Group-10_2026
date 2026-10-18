@@ -43,7 +43,7 @@ from ..duration.model import DRIFT_TOLERANCE, RateModel
 from ..schemas import Segment, TranslatedSegment
 from .cache import TranslationCache
 from .llm import ChatModel, LLMError
-from .terms import has_placeholder
+from .terms import TERMS_LOST, has_placeholder
 from .prompts import (
     PROMPT_VERSION,
     build_edit_request,
@@ -294,7 +294,7 @@ class FittingTranslator:
                 note += f" ({error})"
         if best.missing:
             lost = ", ".join(missing_terms(best.text, segment.bold_terms))
-            note = (note + "; " if note else "") + f"on-screen term(s) lost: {lost}"
+            note = (note + "; " if note else "") + f"{TERMS_LOST}: {lost}"
 
         if not fitted:
             stage = "escalated"

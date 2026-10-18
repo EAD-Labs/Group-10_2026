@@ -25,11 +25,13 @@ from ..duration.model import DRIFT_TOLERANCE, RateModel
 from ..schemas import (  # noqa: F401
     AlignmentResult,
     AudioAsset,
+    LanguageTrack,
     ParsedScript,
     QAReport,
     SegmentQA,
     TranslatedSegment,
 )
+from ..translate.terms import TERMS_LOST
 
 
 def build_qa_report(
@@ -92,3 +94,34 @@ def build_qa_report(
         )
 
     return QAReport(language=language, segments=rows, reference_rate=reference)
+
+
+def needs_review(translated: TranslatedSegment, row: SegmentQA | None) -> bool:
+    """A line a person should look at: it could not be fitted, its audio
+    still overruns, or it dropped an on-screen term. Informational notes
+    ("predicted over, but the audio fits") do not count."""
+    return (
+        not translated.fitted
+        or (row is not None and not row.within_drift)
+        or TERMS_LOST in (translated.note or "")
+    )
+
+
+def summarise(track: LanguageTrack) -> dict:
+    """The headline numbers every front end shows for a finished track."""
+    translations = track.translations
+    rows = {r.segment_id: r for r in (track.qa.segments if track.qa else [])}
+    qa = track.qa
+    return {
+        "segments": len(translations),
+        "fitted": sum(1 for t in translations if t.fitted),
+        "escalated": sum(1 for t in translations if not t.fitted),
+        "drafts_kept": sum(1 for t in translations if t.stage == "draft"),
+        "shortened": sum(1 for t in translations if t.stage == "shortened"),
+        "review": sum(1 for t in translations if needs_review(t, rows.get(t.segment_id))),
+        "within_drift": sum(1 for r in rows.values() if r.within_drift) if qa else None,
+        "max_drift": qa.max_drift if qa else None,
+        "median_pause": qa.median_pause if qa else None,
+        "mean_rate_ratio": qa.mean_rate_ratio if qa else None,
+        "audio_seconds": sum(a.duration for a in track.audio),
+    }

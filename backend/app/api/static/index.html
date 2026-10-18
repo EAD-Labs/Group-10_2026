@@ -695,7 +695,7 @@ async function attachSubtitles(video, srtUrl) {
 
 function renderStats() {
   const s = S.track.summary;
-  const review = S.track.rows.filter(needsReview).length;
+  const review = s.review;
   const stat = (n, l, cls = "") => `<div class="card stat ${cls}"><div class="n">${n}</div><div class="l">${l}</div></div>`;
   $("#stats").innerHTML =
     stat(`${s.within_drift}/${s.segments}`, "lines land in their time slot", s.within_drift === s.segments ? "good" : "") +
@@ -742,7 +742,7 @@ async function renderDrawer() {
 }
 
 // Not every note is a problem: "predicted over, but the audio fits" is information.
-const needsReview = (r) => !r.fitted || r.within_drift === false || /term\(s\) lost/.test(r.note || "");
+const needsReview = (r) => r.review;  // the rule lives on the server (app/timeline/qa.py needs_review)
 
 const FILTERS = {
   all: ["All", () => true],
@@ -829,7 +829,7 @@ async function historyHtml() {
   };
   return jobs.map((j) => {
     const s = j.summary || {};
-    const result = j.status === "done" ? (s.segments ? `${s.on_time}/${s.segments} on time` : "done") : j.status;
+    const result = j.status === "done" ? (s.segments ? `${s.within_drift ?? s.on_time}/${s.segments} on time` : "done") : j.status;
     return `<button class="card history-item" data-job="${j.id}"><div class="thumb" ${poster(j)}></div>
       <div><div style="font-weight:600">${esc(j.title || j.script_name)}</div>
       <div class="muted" style="font-size:13px">${esc(langName(j.language))} · ${esc(cap(j.voice || j.tts))} · pace ${Number(j.pace ?? 1).toFixed(1)}</div>

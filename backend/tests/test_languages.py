@@ -256,3 +256,25 @@ def test_calibrated_voices_count_english_terms_and_digits_at_their_spoken_length
     # The narrator's model - and the Step 1 analysis on it - keep plain counts.
     assert RateModel().units("Windows 8", "ta") == 2
     assert RateModel.for_voice(None).units("Windows 8", "ta") == spoken_units("Windows 8")
+
+
+def test_only_real_problems_need_review():
+    """Notes that only explain a line ("predicted over, but the audio fits")
+    must not inflate the review count shown to the client."""
+    from app.schemas import SegmentQA, TranslatedSegment
+    from app.timeline.qa import needs_review
+    from app.translate.terms import TERMS_LOST
+
+    def line(fitted=True, note=None):
+        return TranslatedSegment(segment_id="S-1", language="hi", source_text="x", text="y",
+                                 fitted=fitted, note=note)
+
+    def qa(within):
+        return SegmentQA(segment_id="S-1", budget=2, predicted=2, actual=2, drift=0,
+                         rate_ratio=1, within_drift=within)
+
+    assert not needs_review(line(note="predicted +0.30s over, but the audio fits (-0.10s)"), qa(True))
+    assert needs_review(line(fitted=False), qa(True))
+    assert needs_review(line(), qa(False))
+    assert needs_review(line(note=f"{TERMS_LOST}: document"), qa(True))
+    assert not needs_review(line(), None)

@@ -42,6 +42,8 @@ from collections import Counter
 from typing import Iterable
 
 PLACEHOLDER = "TERMX{}"
+TERMS_LOST = "on-screen term(s) lost"
+"""How a translation that dropped a protected term is marked in its note."""
 _PLACEHOLDER = re.compile(r"TERMX\s?(\d+)")
 _TRANSLITERATED = re.compile(
     r"டி\.?\s*இ\.?\s*ஆர்\.?\s*எம்\.?\s*எக்ஸ்\s*(\d+)"

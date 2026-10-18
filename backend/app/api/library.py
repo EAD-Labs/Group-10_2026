@@ -196,6 +196,22 @@ class Library:
     def as_dicts(self) -> list[dict]:
         return [asdict(t) for t in self.tutorials()]
 
+    def title_for(self, script_name: str) -> str:
+        """The tutorial's title for a script, by file name or relative path;
+        the bare file name for a script that is not in the library."""
+        name = os.path.basename(script_name)
+        return next(
+            (t.title for t in self.tutorials() if t.script == script_name or os.path.basename(t.script) == name),
+            os.path.splitext(name)[0],
+        )
+
+    def video_named(self, name: str) -> str | None:
+        """The absolute path of an English video in the library, by file name."""
+        for video in self.english_videos():
+            if os.path.basename(video) == name:
+                return self.resolve(video)
+        return None
+
     def poster(self, relative_video: str) -> str | None:
         """A JPEG frame from early in the video, made once and cached."""
         video = self.resolve(relative_video)
