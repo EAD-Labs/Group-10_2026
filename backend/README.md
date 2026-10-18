@@ -1,5 +1,8 @@
 # Spoken Tutorial dubbing - backend
 
+*Setup, running and the API are in the [main README](../README.md). This file is the
+technical deep dive: what each stage does, and the measurements behind it.*
+
 Takes an English Spoken Tutorial timed script (and optionally its video) to a
 dubbed track in Tamil - or Hindi, Marathi, Telugu, Kannada, Malayalam,
 Bengali, Gujarati, Punjabi or Odia - that fits the original video's timing. **The English script
@@ -9,7 +12,8 @@ used only as an evaluation baseline (tests, report comparisons, the optional
 
 ```
 parse -> translate (IndicTrans2 draft, Sarvam LLM shortens) -> synthesise (Sarvam)
-      -> fit audio pace -> align (VAD) -> timeline -> QA -> export (SRT, mixdown, video)
+      -> fit audio pace -> align (VAD) -> timeline -> QA
+      -> export (dubbed script .docx, SRT, dub audio, dubbed video)
 ```
 
 ## Quick start
@@ -66,7 +70,7 @@ cd backend
 # real chain
 python -m app.run ../samples/Timed-script-sample-english.docx --language ta \
     --translator indictrans+sarvam --tts sarvam --aligner vad \
-    --video ../samples/Overview-of-Synfig-English.webm --export srt manifest mixdown --workers 4
+    --video ../samples/Overview-of-Synfig-English.webm --workers 4
 
 # stubs only - no keys, no downloads
 python -m app.run ../samples/Timed-script-sample-english.docx --language ta --duration 663.2
@@ -88,12 +92,13 @@ declare `is_stub = True`; every run names the stubs still in the chain.
 | translate | `indictrans+sarvam` - IndicTrans2 drafts locally, sarvam-105b edits overruns; `sarvam` - LLM only; `indictrans+groq` / `groq` - the same on GPT-OSS 120B | `echo` |
 | synthesise | `sarvam` - Bulbul v3, with pace correction | `silent` |
 | align | `vad` - Step 1's speech detector | `clip-bounds` |
-| export | `srt`, `mixdown` (dub WAV + remuxed video) | `manifest` (stand-in for OTIO / Kdenlive) |
+| export | `script` (the dubbed script as a Time \| Narration .docx), `srt`, `mixdown` (dub WAV + remuxed video) | `manifest` (stand-in for OTIO / Kdenlive) |
 
 Layout: `app/parsing` (script reader, cues, checklist rules), `app/duration`
 (rate model, syllable counter, audio measurement), `app/translate`,
 `app/tts`, `app/align`, `app/timeline` (placement, QA), `app/export`,
-`app/pipeline` (runner, registry, track store), `app/api` (FastAPI + page),
+`app/pipeline` (runner, registry, track store), `app/api` (FastAPI endpoints,
+background jobs, tutorial library; the page itself is `../frontend/`),
 `app/config.py` (settings and secrets), `app/http.py` (shared retrying POST).
 
 ## What it does that a naive parser does not

@@ -46,8 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--translator", default="echo", choices=sorted(TRANSLATORS))
     parser.add_argument("--tts", default="silent", choices=sorted(TTS_PROVIDERS))
     parser.add_argument("--aligner", default="clip-bounds", choices=sorted(ALIGNERS))
-    parser.add_argument("--export", nargs="*", default=["srt", "manifest"],
-                        choices=sorted(EXPORTERS))
+    parser.add_argument("--export", nargs="*", default=None, choices=sorted(EXPORTERS),
+                        help="deliverables (default: script, srt, manifest - and mixdown "
+                             "when --video is given)")
     parser.add_argument("--voice", default=None)
     parser.add_argument("--max-attempts", type=int, default=None,
                         help="rephrasing rounds before a segment is escalated")
@@ -74,7 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         translator=args.translator,
         tts=args.tts,
         aligner=args.aligner,
-        exporters=list(args.export),
+        exporters=list(args.export) if args.export is not None
+        else ["script", "srt", "manifest"] + (["mixdown"] if args.video else []),
         voice=args.voice,
         rate_model=RateModel(),
         provider_options=provider_options,

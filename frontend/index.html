@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tutorial Dubbing Studio</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="./"><span class="logo">அ</span><span>Tutorial Dubbing Studio</span></a>
+    <div class="spacer"></div>
+    <button class="ghost" id="historyBtn">History</button>
+    <button class="ghost" id="systemBtn"><span class="dot" id="healthDot"></span>System</button>
+  </div>
+</header>
+
+<main>
+  <!-- 1. set up -->
+  <section id="setup" hidden>
+    <div class="hero">
+      <h1>Dub a tutorial</h1>
+      <p>The English script and the English video go in. A dubbed video that keeps the original timing comes out.</p>
+    </div>
+    <p class="section-label">1 · Tutorial</p>
+    <div class="tutorials" id="tutorials"></div>
+    <div class="card upload-box" id="uploadBox" hidden>
+      <label>English timed script (.docx or .odt)<input type="file" id="uploadScript" accept=".docx,.odt"></label>
+      <label>English video (.webm, .mp4, .mkv)<input type="file" id="uploadVideo" accept=".webm,.mp4,.mkv"></label>
+    </div>
+
+    <p class="section-label">2 · Voice</p>
+    <div class="card">
+      <div class="controls">
+        <label class="field"><span>Language</span>
+          <select id="language"></select>
+          <small id="languageHint"></small>
+        </label>
+        <label class="field"><span>Speaker</span>
+          <select id="voice"></select>
+          <small id="voiceHint"></small>
+        </label>
+        <div class="field"><span>Speaking pace</span>
+          <div class="segmented" id="pace">
+            <button type="button" data-pace="0.7">0.7</button><button type="button" data-pace="0.8">0.8</button>
+            <button type="button" data-pace="0.9">0.9</button><button type="button" data-pace="1.0">1.0</button>
+          </div>
+          <div class="scale"><span>calmer</span><span>natural</span></div>
+          <small>Slower speech leaves less time per line, so more lines are condensed to fit.</small>
+        </div>
+      </div>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="adv-grid">
+          <label>Translator <select id="translator"></select></label>
+          <label>Speech <select id="tts"></select></label>
+          <label>Aligner <select id="aligner"></select></label>
+          <label>Parallel requests <input type="number" id="workers" min="1" max="8" value="2"></label>
+        </div>
+      </details>
+      <div class="go-row">
+        <span class="muted" id="goHint"></span>
+        <button class="primary" id="go">Dub video &rarr;</button>
+      </div>
+    </div>
+    <div class="notice bad" id="setupError" style="margin-top:14px" hidden></div>
+  </section>
+
+  <!-- 2 + 3. a job: running, then the result -->
+  <section id="jobView" hidden>
+    <div class="job-head">
+      <h1 id="jobTitle"></h1>
+      <span class="pill" id="jobLang"></span><span class="pill" id="jobVoice"></span><span class="pill" id="jobPace"></span>
+      <div class="spacer"></div>
+      <span class="muted mono" id="jobClock"></span>
+    </div>
+
+    <div id="running">
+      <div class="card">
+        <div class="steps" id="steps"></div>
+        <div class="overall">
+          <div class="line"><span id="overallLabel">Starting…</span><span class="mono" id="overallPct"></span></div>
+          <div class="bar"><i id="overallBar" style="width:0"></i></div>
+        </div>
+      </div>
+      <div class="card feed" id="feed"></div>
+    </div>
+
+    <div id="result" hidden>
+      <div class="card player-card">
+        <div class="player-tabs">
+          <button class="tab on" data-view="dubbed">Dubbed</button>
+          <button class="tab" data-view="original">Original</button>
+          <button class="tab" data-view="sbs">Side by side</button>
+          <div class="hear" id="hear" hidden>Sound from
+            <button class="tab on" data-hear="dubbed">dub</button><button class="tab" data-hear="original">original</button>
+          </div>
+        </div>
+        <div class="player" id="player"></div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="actions-row">
+        <a class="primary" id="download" download>Download dubbed video</a>
+        <a class="secondary" id="downloadScript" download hidden>Download dubbed script</a>
+        <button class="secondary" id="detailsBtn">Details &amp; line review</button>
+        <button class="secondary" id="anotherBtn">Dub another</button>
+      </div>
+    </div>
+
+    <div class="notice warn" id="stubNotice" style="margin-top:14px" hidden></div>
+    <div class="notice bad" id="jobError" style="margin-top:14px" hidden></div>
+  </section>
+</main>
+
+<div id="overlay" hidden>
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-head"><h2 id="drawerTitle"></h2><button class="close" id="drawerClose" aria-label="Close">&times;</button></div>
+    <div class="drawer-tabs" id="drawerTabs"></div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

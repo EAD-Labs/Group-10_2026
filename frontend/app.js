@@ -1,320 +1,3 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tutorial Dubbing Studio</title>
-<style>
-:root {
-  --bg:#f5f6f8; --panel:#ffffff; --raised:#fbfbfc; --ink:#14161a; --muted:#646b78; --faint:#9aa1ad;
-  --line:#e4e6eb; --accent:#4f46e5; --accent-ink:#ffffff; --accent-soft:#eef0ff;
-  --ok:#11845b; --okbg:#e8f7f0; --bad:#c2352b; --badbg:#fdeeec; --warn:#9a6700; --warnbg:#fff6dd;
-  --shadow:0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.06);
-  --radius:14px; --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color-scheme:light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg:#0e1014; --panel:#16191f; --raised:#1b1f26; --ink:#e8eaee; --muted:#9aa2b1; --faint:#6b7280;
-    --line:#272c35; --accent:#8b8cf8; --accent-ink:#0e1014; --accent-soft:#23243d;
-    --ok:#4ade80; --okbg:#0f2a1c; --bad:#f87171; --badbg:#2e1515; --warn:#fbbf24; --warnbg:#2b2210;
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
-    color-scheme:dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg:#0e1014; --panel:#16191f; --raised:#1b1f26; --ink:#e8eaee; --muted:#9aa2b1; --faint:#6b7280;
-  --line:#272c35; --accent:#8b8cf8; --accent-ink:#0e1014; --accent-soft:#23243d;
-  --ok:#4ade80; --okbg:#0f2a1c; --bad:#f87171; --badbg:#2e1515; --warn:#fbbf24; --warnbg:#2b2210;
-  --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px rgba(0,0,0,.35);
-  color-scheme:dark;
-}
-* { box-sizing:border-box; }
-html, body { margin:0; }
-body { background:var(--bg); color:var(--ink);
-  font:15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Tamil", sans-serif; }
-button, select, input, textarea { font:inherit; color:inherit; }
-button { cursor:pointer; }
-[hidden] { display:none !important; }
-.muted { color:var(--muted); }
-.mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
-
-/* top bar */
-.top { position:sticky; top:0; z-index:5; background:color-mix(in srgb, var(--bg) 85%, transparent);
-  backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
-.top-inner { max-width:1120px; margin:0 auto; padding:12px 16px; display:flex; align-items:center; gap:12px; }
-.brand { display:flex; align-items:center; gap:10px; font-weight:650; letter-spacing:-.01em; text-decoration:none; color:inherit; }
-.logo { width:30px; height:30px; border-radius:9px; background:var(--accent); color:var(--accent-ink);
-  display:grid; place-items:center; font-size:15px; font-weight:700; }
-.spacer { flex:1; }
-.ghost { background:none; border:1px solid transparent; border-radius:10px; padding:7px 12px; color:var(--muted); }
-.ghost:hover { background:var(--panel); border-color:var(--line); color:var(--ink); }
-.dot { width:8px; height:8px; border-radius:50%; display:inline-block; background:var(--faint); margin-right:6px; vertical-align:middle; }
-.dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
-
-main { max-width:1120px; margin:0 auto; padding:28px 16px 80px; }
-.hero h1 { font-size:28px; letter-spacing:-.02em; margin:0 0 4px; }
-.hero p { margin:0 0 24px; color:var(--muted); }
-.card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
-.section-label { font-size:12px; font-weight:650; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:0 0 10px; }
-
-/* tutorial picker */
-.tutorials { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:14px; margin-bottom:26px; }
-.tut { text-align:left; padding:0; overflow:hidden; border:2px solid var(--line); border-radius:var(--radius);
-  background:var(--panel); transition:border-color .15s, transform .15s; display:flex; flex-direction:column; }
-.tut:hover { transform:translateY(-2px); }
-.tut.selected { border-color:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
-.tut .poster { aspect-ratio:16/9; background:var(--raised) center/cover no-repeat; display:grid; place-items:center; color:var(--faint); font-size:28px; }
-.tut .meta { padding:10px 12px 12px; }
-.tut .title { font-weight:600; font-size:14px; line-height:1.35; }
-.tut .sub { font-size:12px; color:var(--muted); margin-top:3px; }
-.upload-box { display:grid; gap:10px; grid-template-columns:1fr 1fr; padding:16px; margin:-12px 0 26px; }
-.upload-box label { display:grid; gap:6px; font-size:13px; color:var(--muted); }
-@media (max-width:640px) { .upload-box { grid-template-columns:1fr; } }
-
-/* controls */
-.controls { display:grid; grid-template-columns:1fr 1fr 1.3fr; gap:16px; padding:20px; align-items:start; }
-@media (max-width:820px) { .controls { grid-template-columns:1fr; } }
-.field { display:grid; gap:6px; }
-.field > span { font-size:13px; font-weight:600; }
-.field small { color:var(--muted); font-size:12px; min-height:18px; }
-select { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--raised); }
-.segmented { display:grid; grid-template-columns:repeat(4, 1fr); background:var(--raised); border:1px solid var(--line); border-radius:10px; padding:3px; }
-.segmented button { border:0; background:none; padding:7px 0; border-radius:8px; font-weight:600; color:var(--muted); }
-.segmented button.on { background:var(--panel); color:var(--ink); box-shadow:var(--shadow); }
-.scale { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); padding:0 4px; }
-details.advanced { padding:0 20px 18px; }
-details.advanced summary { cursor:pointer; color:var(--muted); font-size:13px; }
-.adv-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin-top:12px; }
-.adv-grid label { display:grid; gap:4px; font-size:12px; color:var(--muted); }
-.adv-grid input { padding:9px 10px; border:1px solid var(--line); border-radius:10px; background:var(--raised); }
-.go-row { display:flex; justify-content:flex-end; align-items:center; gap:14px; padding:16px 20px; border-top:1px solid var(--line); }
-.primary { background:var(--accent); color:var(--accent-ink); border:0; border-radius:12px; padding:12px 22px; font-weight:650; font-size:15px; }
-.primary:disabled { opacity:.5; cursor:default; }
-.secondary { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 16px; font-weight:600; }
-.secondary:hover { border-color:var(--faint); }
-.notice { border-radius:10px; padding:10px 14px; font-size:14px; }
-.notice.bad { background:var(--badbg); color:var(--bad); white-space:pre-wrap; }
-.notice.warn { background:var(--warnbg); color:var(--warn); }
-
-/* running */
-.job-head { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
-.job-head h1 { font-size:24px; margin:0; letter-spacing:-.02em; }
-.pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; background:var(--raised); border:1px solid var(--line); color:var(--muted); }
-.steps { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:6px; padding:20px; }
-@media (max-width:720px) { .steps { grid-auto-flow:row; } }
-.step { display:grid; gap:8px; }
-.step .name { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--muted); }
-.step .badge { width:22px; height:22px; border-radius:50%; border:2px solid var(--line); display:grid; place-items:center; font-size:11px; flex:none; }
-.step.active .name { color:var(--ink); }
-.step.active .badge { border-color:var(--accent); border-top-color:transparent; animation:spin 1s linear infinite; }
-.step.done .badge { background:var(--ok); border-color:var(--ok); color:#fff; }
-.step.done .name { color:var(--ink); }
-.step .bar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; }
-.step .bar i { display:block; height:100%; width:0; background:var(--accent); transition:width .4s; }
-.step.done .bar i { background:var(--ok); }
-.step .count { font-size:11px; color:var(--faint); font-family:var(--mono); min-height:16px; }
-@keyframes spin { to { transform:rotate(360deg); } }
-.overall { padding:0 20px 20px; }
-.overall .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; }
-.overall .bar i { display:block; height:100%; background:linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--ok))); transition:width .5s; }
-.overall .line { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); margin-bottom:6px; }
-.feed { margin-top:18px; padding:6px 0; }
-.feed h3 { margin:12px 20px 4px; font-size:13px; color:var(--muted); font-weight:600; }
-.feed-item { display:grid; grid-template-columns:64px 1fr auto; gap:12px; padding:12px 20px; border-top:1px solid var(--line); align-items:start; }
-.feed-item.new { animation:rise .35s ease; }
-.feed-item:first-of-type { border-top:0; }
-.feed-item .src { color:var(--muted); font-size:13px; }
-.feed-item .dst { font-size:16px; margin-top:2px; }
-@keyframes rise { from { opacity:0; transform:translateY(6px); } }
-.chip { display:inline-block; font-size:11px; font-weight:650; padding:2px 9px; border-radius:999px; white-space:nowrap; }
-.chip.kept { color:var(--ok); background:var(--okbg); }
-.chip.condensed { color:var(--accent); background:var(--accent-soft); }
-.chip.review { color:var(--bad); background:var(--badbg); }
-.chip.clip { color:var(--warn); background:var(--warnbg); }
-.play { width:32px; height:32px; border-radius:50%; border:1px solid var(--line); background:var(--raised); display:grid; place-items:center; font-size:11px; }
-.play:hover { border-color:var(--accent); color:var(--accent); }
-.waiting { padding:22px 20px; color:var(--muted); font-size:14px; }
-
-/* result */
-.player-card { overflow:hidden; }
-.player-tabs { display:flex; gap:6px; padding:12px; border-bottom:1px solid var(--line); flex-wrap:wrap; align-items:center; }
-.tab { border:0; background:none; padding:7px 14px; border-radius:9px; font-weight:600; color:var(--muted); }
-.tab.on { background:var(--accent-soft); color:var(--accent); }
-.player { background:#000; }
-.player video { width:100%; display:block; max-height:70vh; background:#000; }
-.sbs { display:grid; grid-template-columns:1fr 1fr; gap:2px; background:#000; }
-.sbs figure { margin:0; position:relative; }
-.sbs figcaption { position:absolute; top:8px; left:8px; font-size:12px; font-weight:650; color:#fff; background:rgba(0,0,0,.55); padding:3px 9px; border-radius:999px; }
-@media (max-width:720px) { .sbs { grid-template-columns:1fr; } }
-.hear { margin-left:auto; display:flex; gap:6px; align-items:center; font-size:13px; color:var(--muted); }
-.stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; margin:18px 0; }
-@media (max-width:720px) { .stats { grid-template-columns:repeat(2, 1fr); } }
-.stat { padding:16px 18px; }
-.stat .n { font-size:26px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
-.stat .l { font-size:13px; color:var(--muted); }
-.stat.good .n { color:var(--ok); } .stat.flag .n { color:var(--bad); }
-.actions-row { display:flex; gap:10px; flex-wrap:wrap; }
-a.primary { text-decoration:none; display:inline-block; }
-
-/* drawers */
-.scrim { position:fixed; inset:0; background:rgba(10,12,16,.45); z-index:20; animation:fade .2s; }
-@keyframes fade { from { opacity:0; } }
-.drawer { position:fixed; top:0; right:0; bottom:0; width:min(980px, 100vw); background:var(--bg); z-index:21;
-  display:flex; flex-direction:column; box-shadow:-10px 0 40px rgba(0,0,0,.2); animation:slide .25s ease; }
-.drawer.narrow { width:min(460px, 100vw); }
-@keyframes slide { from { transform:translateX(40px); opacity:0; } }
-.drawer-head { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel); }
-.drawer-head h2 { font-size:17px; margin:0; }
-.drawer-tabs { display:flex; gap:4px; padding:10px 18px; border-bottom:1px solid var(--line); background:var(--panel); overflow-x:auto; }
-.drawer-body { flex:1; overflow:auto; padding:18px; }
-.close { margin-left:auto; border:1px solid var(--line); background:var(--raised); border-radius:9px; width:34px; height:34px; font-size:16px; }
-.filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
-.filters button { border:1px solid var(--line); background:var(--panel); border-radius:999px; padding:5px 12px; font-size:13px; }
-.filters button.on { background:var(--ink); color:var(--bg); border-color:var(--ink); }
-.lines { display:grid; gap:10px; }
-.line-row { display:grid; grid-template-columns:86px 1fr 1fr 120px; gap:14px; padding:14px; }
-@media (max-width:760px) { .line-row { grid-template-columns:1fr; } }
-.line-row.flagged { box-shadow:inset 3px 0 var(--bad), var(--shadow); }
-.line-row .when { font-family:var(--mono); font-size:12px; color:var(--muted); }
-.line-row .en { color:var(--muted); font-size:14px; }
-.line-row .mt { color:var(--faint); font-size:12px; margin-top:6px; }
-.line-row .note { color:var(--bad); font-size:12px; margin-top:6px; }
-.line-row textarea { width:100%; min-height:80px; padding:8px; border:1px solid var(--accent); border-radius:10px; background:var(--panel); }
-.line-row .side { display:grid; gap:6px; align-content:start; justify-items:start; font-size:12px; }
-.small-btn { border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:5px 10px; font-size:12px; }
-.small-btn.primary-ish { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
-.over { color:var(--bad); font-weight:650; } .under { color:var(--ok); }
-.kv { display:grid; grid-template-columns:minmax(160px, 260px) 1fr; gap:0; }
-.kv div { padding:11px 14px; border-top:1px solid var(--line); }
-.kv div:nth-child(-n+2) { border-top:0; }
-.kv .k { color:var(--muted); }
-.explain { color:var(--muted); font-size:13px; margin:14px 2px 0; }
-.files a { display:flex; justify-content:space-between; gap:12px; padding:13px 16px; border-top:1px solid var(--line); color:inherit; text-decoration:none; }
-.files a:first-child { border-top:0; }
-.files a:hover { background:var(--raised); }
-.history-item { display:grid; grid-template-columns:72px 1fr; gap:12px; padding:12px; margin-bottom:10px; text-align:left; width:100%; border:1px solid var(--line); }
-.history-item:hover { border-color:var(--accent); }
-.history-item .thumb { aspect-ratio:16/9; border-radius:8px; background:var(--raised) center/cover; }
-.empty { padding:30px; text-align:center; color:var(--muted); }
-</style>
-</head>
-<body>
-<header class="top">
-  <div class="top-inner">
-    <a class="brand" href="./"><span class="logo">அ</span><span>Tutorial Dubbing Studio</span></a>
-    <div class="spacer"></div>
-    <button class="ghost" id="historyBtn">History</button>
-    <button class="ghost" id="systemBtn"><span class="dot" id="healthDot"></span>System</button>
-  </div>
-</header>
-
-<main>
-  <!-- 1. set up -->
-  <section id="setup" hidden>
-    <div class="hero">
-      <h1>Dub a tutorial</h1>
-      <p>The English script and the English video go in. A dubbed video that keeps the original timing comes out.</p>
-    </div>
-    <p class="section-label">1 · Tutorial</p>
-    <div class="tutorials" id="tutorials"></div>
-    <div class="card upload-box" id="uploadBox" hidden>
-      <label>English timed script (.docx or .odt)<input type="file" id="uploadScript" accept=".docx,.odt"></label>
-      <label>English video (.webm, .mp4, .mkv)<input type="file" id="uploadVideo" accept=".webm,.mp4,.mkv"></label>
-    </div>
-
-    <p class="section-label">2 · Voice</p>
-    <div class="card">
-      <div class="controls">
-        <label class="field"><span>Language</span>
-          <select id="language"></select>
-          <small id="languageHint"></small>
-        </label>
-        <label class="field"><span>Speaker</span>
-          <select id="voice"></select>
-          <small id="voiceHint"></small>
-        </label>
-        <div class="field"><span>Speaking pace</span>
-          <div class="segmented" id="pace">
-            <button type="button" data-pace="0.7">0.7</button><button type="button" data-pace="0.8">0.8</button>
-            <button type="button" data-pace="0.9">0.9</button><button type="button" data-pace="1.0">1.0</button>
-          </div>
-          <div class="scale"><span>calmer</span><span>natural</span></div>
-          <small>Slower speech leaves less time per line, so more lines are condensed to fit.</small>
-        </div>
-      </div>
-      <details class="advanced">
-        <summary>Advanced</summary>
-        <div class="adv-grid">
-          <label>Translator <select id="translator"></select></label>
-          <label>Speech <select id="tts"></select></label>
-          <label>Aligner <select id="aligner"></select></label>
-          <label>Parallel requests <input type="number" id="workers" min="1" max="8" value="2"></label>
-        </div>
-      </details>
-      <div class="go-row">
-        <span class="muted" id="goHint"></span>
-        <button class="primary" id="go">Dub video &rarr;</button>
-      </div>
-    </div>
-    <div class="notice bad" id="setupError" style="margin-top:14px" hidden></div>
-  </section>
-
-  <!-- 2 + 3. a job: running, then the result -->
-  <section id="jobView" hidden>
-    <div class="job-head">
-      <h1 id="jobTitle"></h1>
-      <span class="pill" id="jobLang"></span><span class="pill" id="jobVoice"></span><span class="pill" id="jobPace"></span>
-      <div class="spacer"></div>
-      <span class="muted mono" id="jobClock"></span>
-    </div>
-
-    <div id="running">
-      <div class="card">
-        <div class="steps" id="steps"></div>
-        <div class="overall">
-          <div class="line"><span id="overallLabel">Starting…</span><span class="mono" id="overallPct"></span></div>
-          <div class="bar"><i id="overallBar" style="width:0"></i></div>
-        </div>
-      </div>
-      <div class="card feed" id="feed"></div>
-    </div>
-
-    <div id="result" hidden>
-      <div class="card player-card">
-        <div class="player-tabs">
-          <button class="tab on" data-view="dubbed">Dubbed</button>
-          <button class="tab" data-view="original">Original</button>
-          <button class="tab" data-view="sbs">Side by side</button>
-          <div class="hear" id="hear" hidden>Sound from
-            <button class="tab on" data-hear="dubbed">dub</button><button class="tab" data-hear="original">original</button>
-          </div>
-        </div>
-        <div class="player" id="player"></div>
-      </div>
-      <div class="stats" id="stats"></div>
-      <div class="actions-row">
-        <a class="primary" id="download" download>Download dubbed video</a>
-        <button class="secondary" id="detailsBtn">Details &amp; line review</button>
-        <button class="secondary" id="anotherBtn">Dub another</button>
-      </div>
-    </div>
-
-    <div class="notice warn" id="stubNotice" style="margin-top:14px" hidden></div>
-    <div class="notice bad" id="jobError" style="margin-top:14px" hidden></div>
-  </section>
-</main>
-
-<div id="overlay" hidden>
-  <div class="scrim" id="scrim"></div>
-  <aside class="drawer" id="drawer">
-    <div class="drawer-head"><h2 id="drawerTitle"></h2><button class="close" id="drawerClose" aria-label="Close">&times;</button></div>
-    <div class="drawer-tabs" id="drawerTabs"></div>
-    <div class="drawer-body" id="drawerBody"></div>
-  </aside>
-</div>
-
-<script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (n, d = 1) => (n === null || n === undefined) ? "—" : Number(n).toFixed(d);
@@ -617,6 +300,7 @@ function exportsOf(track) {
     video: names.find((n) => /-dub\.(webm|mp4|mkv)$/.test(n)),
     wav: names.find((n) => /-dub\.wav$/.test(n)),
     srt: names.find((n) => n.endsWith(".srt")),
+    script: names.find((n) => n.endsWith("-script.docx")),
   };
 }
 
@@ -628,6 +312,8 @@ function renderPlayer() {
   const original = t.original;
   $("#download").hidden = !dubbed && !x.wav;
   $("#download").href = dubbed || (x.wav ? t.exports[x.wav] : "#");
+  $("#downloadScript").hidden = !x.script;
+  $("#downloadScript").href = x.script ? t.exports[x.script] : "#";
   for (const b of document.querySelectorAll(".player-tabs [data-view]")) {
     b.classList.toggle("on", b.dataset.view === S.view);
     b.hidden = (b.dataset.view !== "dubbed" && !original) || (!dubbed && b.dataset.view !== "dubbed");
@@ -742,7 +428,7 @@ async function renderDrawer() {
 }
 
 // Not every note is a problem: "predicted over, but the audio fits" is information.
-const needsReview = (r) => r.review;  // the rule lives on the server (app/timeline/qa.py needs_review)
+const needsReview = (r) => r.review;  // the rule lives on the server (backend/app/timeline/qa.py needs_review)
 
 const FILTERS = {
   all: ["All", () => true],
@@ -816,7 +502,7 @@ function settingsHtml() {
 
 function filesHtml() {
   const t = S.track, names = Object.keys(t.exports).filter((n) => t.exports[n]);
-  const label = (n) => /-dub\.(webm|mp4|mkv)$/.test(n) ? "Dubbed video" : /\.wav$/.test(n) ? "Dubbed audio track" : n.endsWith(".srt") ? "Subtitles (SRT)" : n.endsWith(".json") ? "Timing manifest" : "File";
+  const label = (n) => /-dub\.(webm|mp4|mkv)$/.test(n) ? "Dubbed video" : n.endsWith("-script.docx") ? "Dubbed script (Word)" : /\.wav$/.test(n) ? "Dubbed audio track" : n.endsWith(".srt") ? "Subtitles (SRT)" : n.endsWith(".json") ? "Timing manifest" : "File";
   return `<div class="card files">${names.map((n) => `<a href="${t.exports[n]}" download><span>${label(n)}</span><span class="muted mono">${esc(n)}</span></a>`).join("")}</div>`;
 }
 
@@ -871,6 +557,3 @@ $("#drawerBody").addEventListener("click", async (e) => {
 });
 
 init().catch((err) => { $("#setup").hidden = false; showSetupError(`Could not reach the server: ${err.message}`); });
-</script>
-</body>
-</html>

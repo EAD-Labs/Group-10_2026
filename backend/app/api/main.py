@@ -44,7 +44,9 @@ from .library import Library
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.path.dirname(os.path.dirname(HERE))
-SAMPLES = os.path.join(os.path.dirname(BACKEND), "samples")
+ROOT = os.path.dirname(BACKEND)
+SAMPLES = os.path.join(ROOT, "samples")
+FRONTEND = os.path.join(ROOT, "frontend")
 LIBRARY = Library(SAMPLES, os.path.join(settings().out_dir, "thumbs"))
 
 app = FastAPI(title="Spoken Tutorial dubbing")
@@ -228,7 +230,7 @@ def create_job(
         translator=translator,
         tts=tts,
         aligner=aligner,
-        exporters=["srt", "manifest", "mixdown"],
+        exporters=["script", "srt", "mixdown", "manifest"],
         voice=voice or None,
         max_workers=max(1, min(workers, 8)),
         video_path=video_path,
@@ -364,4 +366,5 @@ def get_file(job_id: str, path: str) -> FileResponse:
     return FileResponse(absolute)
 
 
-app.mount("/", StaticFiles(directory=os.path.join(HERE, "static"), html=True), name="ui")
+# The page (frontend/) is static files, served from the same origin as the API.
+app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="ui")

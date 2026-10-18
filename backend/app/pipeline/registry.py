@@ -68,6 +68,12 @@ def _mixdown(**options: Any) -> Exporter:
     return MixdownExporter(**options)
 
 
+def _script(**options: Any) -> Exporter:
+    from ..export.script_docx import ScriptExporter
+
+    return ScriptExporter(**options)
+
+
 TRANSLATORS: dict[str, Callable[..., Translator]] = {
     # The stub: passes text through, so the pipeline runs with no provider.
     "echo": EchoTranslator,
@@ -99,6 +105,8 @@ EXPORTERS: dict[str, Callable[..., Exporter]] = {
     "manifest": ManifestExporter,
     # The dubbed audio track, and the base video remuxed with it when known.
     "mixdown": _mixdown,
+    # The translated script as a Word table, in the client's own format.
+    "script": _script,
 }
 
 

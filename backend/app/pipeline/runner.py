@@ -111,8 +111,11 @@ class Providers:
 def build_providers(config: PipelineConfig, script: ParsedScript | None = None) -> Providers:
     options = config.provider_options
     exporter_options = {name: dict(options.get(name, {})) for name in config.exporters}
-    if "mixdown" in exporter_options and script is not None:
-        exporter_options["mixdown"].setdefault("script", script)
+    if script is not None:
+        for name in ("mixdown", "script"):
+            if name in exporter_options:
+                exporter_options[name].setdefault("script", script)
+    if "mixdown" in exporter_options:
         exporter_options["mixdown"].setdefault("video_path", config.video_path)
     providers = Providers(
         translator=get_translator(config.translator, **options.get("translator", {})),
