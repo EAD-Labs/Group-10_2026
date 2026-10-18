@@ -54,6 +54,31 @@ LANGUAGE_CODES = {
     "or": "od-IN",
 }
 
+MALE_VOICES = (
+    "shubh", "aditya", "rahul", "rohan", "amit", "dev", "ratan", "varun", "manan",
+    "sumit", "kabir", "aayan", "ashutosh", "advait", "anand", "tarun", "sunny",
+    "mani", "gokul", "vijay", "mohit", "rehan", "soham",
+)
+FEMALE_VOICES = (
+    "ritu", "priya", "neha", "pooja", "simran", "kavya", "ishita", "shreya",
+    "roopa", "tanya", "shruti", "suhani", "kavitha", "rupali",
+)
+"""Bulbul v3's 37 speakers, as Sarvam's voices guide groups them. Any of them
+speaks every language."""
+
+FEATURED_VOICES = ("shubh", "ishita", "priya", "mani", "aditya", "ritu")
+"""Sarvam's recommended starting points: shubh and ishita are its all-language
+defaults; priya (female) and mani (male) are its best-rated picks in several
+languages. `varun` is left out on purpose - Sarvam reserves it for drama."""
+
+
+def voices() -> list[dict]:
+    """Every v3 speaker with its gender, featured voices first."""
+    gender = {name: "male" for name in MALE_VOICES} | {name: "female" for name in FEMALE_VOICES}
+    order = list(FEATURED_VOICES) + sorted(n for n in gender if n not in FEATURED_VOICES)
+    return [{"id": n, "gender": gender[n], "featured": n in FEATURED_VOICES} for n in order]
+
+
 PACE_LIMITS = {"bulbul:v2": (0.3, 3.0)}
 DEFAULT_PACE_LIMITS = (0.5, 2.0)
 MAX_CHARS = {"bulbul:v2": 1500}

@@ -17,7 +17,7 @@ import statistics
 from dataclasses import dataclass, field
 
 from ..schemas import ParsedScript, Segment
-from .syllables import count_syllables
+from .syllables import count_syllables, spoken_units
 
 # Measured by voice-activity analysis of the audio the client supplied for the
 # Synfig "Overview and Installation" pair (app/duration/measure.py). These are
@@ -75,6 +75,11 @@ class RateModel:
     rates: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_RATES))
     reference_language: str = "en"
     pause_reserve: float = PAUSE_RESERVE
+    weighted_units: bool = False
+    """Count in `spoken_units` (Latin syllables and digits weighted by how
+    long the TTS voice takes over them) rather than plain syllables. True for
+    a calibrated voice, whose rates are measured in those units; the human
+    narrator's rates - and the Step 1 analysis built on them - stay plain."""
 
     @classmethod
     def for_voice(cls, voice_key: str | None, path: str = VOICE_RATES_PATH) -> "RateModel":
@@ -85,7 +90,7 @@ class RateModel:
         does not speak at makes "fits on paper" and "fits in the audio"
         disagree. `python -m app.calibrate_voice` measures it; until it has,
         the narrator's rates stand."""
-        model = cls()
+        model = cls(weighted_units=True)
         if not voice_key or not os.path.exists(path):
             return model
         try:
@@ -99,9 +104,15 @@ class RateModel:
     def rate(self, language: str) -> float:
         return self.rates.get(language, self.rates[self.reference_language])
 
+    def units(self, text: str, language: str) -> float:
+        """The amount of speech in `text`, in the units this model's rates use."""
+        if self.weighted_units:
+            return spoken_units(text, language)
+        return float(count_syllables(text))
+
     def estimate(self, text: str, language: str) -> float:
         """Predicted duration of the speech itself, excluding the pause after it."""
-        return count_syllables(text) / self.rate(language)
+        return self.units(text, language) / self.rate(language)
 
     def speaking_budget(self, segment: Segment) -> float:
         """What the narration may occupy once the trailing pause is withheld.

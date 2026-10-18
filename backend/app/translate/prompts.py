@@ -19,9 +19,21 @@ PROMPT_VERSION = 3
 so an edit here correctly misses the cache instead of returning text that an
 earlier instruction produced."""
 
-LANGUAGE_NAMES = {"ta": "Tamil", "hi": "Hindi", "mr": "Marathi", "en": "English"}
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ta": "Tamil",
+    "hi": "Hindi",
+    "mr": "Marathi",
+    "te": "Telugu",
+    "kn": "Kannada",
+    "ml": "Malayalam",
+    "bn": "Bengali",
+    "gu": "Gujarati",
+    "pa": "Punjabi",
+    "or": "Odia",
+}
 
-UNIT_NAMES = {"ta": "aksharas", "hi": "aksharas", "mr": "aksharas", "en": "syllables"}
+UNIT_NAMES = {code: "aksharas" for code in LANGUAGE_NAMES if code != "en"} | {"en": "syllables"}
 
 UNITS_PER_WORD = {"ta": 3.11, "hi": 2.6, "mr": 2.6, "en": 1.57}
 """Median units per word. Tamil (3.11) is measured on our own IndicTrans2

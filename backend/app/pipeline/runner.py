@@ -13,11 +13,13 @@ everything per segment: `run_segments` takes the subset to redo.
 
 from __future__ import annotations
 
+import inspect
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, Sequence, TypeVar
 
+from ..duration.calibrate import calibrate, calibrated_rate
 from ..duration.model import DRIFT_TOLERANCE, RATE_TOLERANCE, RateModel, voice_key
 from ..parsing.parser import parse_script
 from ..schemas import (
@@ -34,11 +36,13 @@ from . import store
 from .interfaces import Aligner, Exporter, Translator, TTSProvider
 from .registry import get_aligner, get_exporters, get_translator, get_tts, is_stub
 
-ProgressHook = Callable[[str, int, int], None]
-"""stage name, completed, total - the hook the API's job-progress endpoint
-polls (HLD S10.2)."""
+ProgressHook = Callable[..., None]
+"""(stage name, completed, total[, item]) - the hook the API's job-progress
+endpoint polls (HLD S10.2). A hook that takes a fourth argument also receives
+each finished result - a TranslatedSegment, an AudioAsset - which is what the
+page's live feed shows. Three-argument hooks keep working."""
 
-STAGES = ("parse", "translate", "synthesize", "align", "fit_audio", "export")
+STAGES = ("parse", "calibrate", "translate", "synthesize", "align", "fit_audio", "export")
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -117,8 +121,24 @@ def build_providers(config: PipelineConfig, script: ParsedScript | None = None) 
     return providers
 
 
-def _noop(stage: str, done: int, total: int) -> None:
+def _noop(stage: str, done: int, total: int, item=None) -> None:
     return None
+
+
+def _adapt(progress: ProgressHook) -> ProgressHook:
+    """Accept both hook shapes: pass the item only to hooks that want it."""
+    if progress is _noop:
+        return progress
+    try:
+        params = inspect.signature(progress).parameters.values()
+    except (TypeError, ValueError):
+        return progress
+    takes_item = any(p.kind is p.VAR_POSITIONAL for p in params) or len(
+        [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    ) >= 4
+    if takes_item:
+        return progress
+    return lambda stage, done, total, item=None: progress(stage, done, total)
 
 
 def _map(
@@ -137,7 +157,7 @@ def _map(
         out = []
         for index, item in enumerate(items, start=1):
             out.append(fn(item))
-            progress(stage, index, total)
+            progress(stage, index, total, out[-1])
         return out
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -145,8 +165,61 @@ def _map(
         results: list[R] = []
         for index, future in enumerate(futures, start=1):
             results.append(future.result())
-            progress(stage, index, total)
+            progress(stage, index, total, results[-1])
         return results
+
+
+def ensure_voice_rate(
+    script: ParsedScript,
+    config: PipelineConfig,
+    providers: Providers,
+    progress: ProgressHook = _noop,
+    rates_path: str | None = None,
+) -> float | None:
+    """Measure the voice first if this language, speaker and pace never were.
+
+    Budgeting at a rate the voice does not speak at makes "fits on paper" and
+    "fits in the audio" disagree, and the fallback rate is the human English
+    narrator's. So a new language, voice or pace is calibrated on ~20 lines of
+    THIS script's own MT drafts before translation starts - the drafts are
+    needed by the translate stage anyway, so the cost is ~20 TTS calls, once.
+    """
+    from ..duration.model import VOICE_RATES_PATH
+
+    path = rates_path or VOICE_RATES_PATH
+    tts = providers.tts
+    if not config.use_voice_rates or is_stub(tts):
+        return None
+    speaker = config.voice or getattr(tts, "speaker", None)
+    key = voice_key(tts.name, speaker, getattr(tts, "pace", 1.0))
+    known = calibrated_rate(key, config.language, path)
+    if known:
+        return known
+    drafter = getattr(providers.translator, "drafter", None)
+    if drafter is None or is_stub(providers.aligner):
+        return None  # nothing to make target-language text with, or to measure it
+
+    class _Voice:
+        """The track's TTS, pinned to the track's speaker."""
+
+        def synthesize(self, translated, *, out_path):
+            return tts.synthesize(translated, out_path=out_path, voice=speaker)
+
+    progress("calibrate", 0, 1)
+    rate = calibrate(
+        script.segments,
+        config.language,
+        _Voice(),
+        providers.aligner,
+        drafter,
+        key=key,
+        out_dir=os.path.join(config.track_dir, "calibration"),
+        rates_path=path,
+        progress=lambda done, total: progress("calibrate", done, total),
+    )
+    if rate:
+        config.rate_model = RateModel.for_voice(key, path)
+    return rate
 
 
 def translate_segments(
@@ -367,7 +440,9 @@ def run_track(
     providers: Providers | None = None,
 ) -> LanguageTrack:
     """Take a parsed script all the way to exported deliverables."""
+    progress = _adapt(progress)
     providers = providers or build_providers(config, script)
+    ensure_voice_rate(script, config, providers, progress)
     translations, audio, alignments = _render(
         script, script.segments, config, providers, progress
     )
@@ -409,6 +484,7 @@ def run_segments(
     segment must not cost a full re-render. Translation and synthesis, the
     metered calls, run only for `segment_ids`.
     """
+    progress = _adapt(progress)
     wanted = set(segment_ids)
     segments = [s for s in script.segments if s.id in wanted]
     if not segments:

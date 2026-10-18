@@ -5,9 +5,11 @@
     # open http://localhost:8000
 
 A job is one script taken to one language track. It runs in a background
-thread; the page polls its progress (HLD S10.2's job-progress endpoint), then
-shows every segment - English, MT draft, final text, budget, measured audio -
-and lets a reviewer rewrite one segment and regenerate only that one (UC-03).
+thread; the page polls its progress (HLD S10.2's job-progress endpoint) and a
+live feed of the lines as they are translated and voiced, then plays the dub
+against the original and shows every segment - English, MT draft, final text,
+budget, measured audio - letting a reviewer rewrite one segment and regenerate
+only that one (UC-03).
 
 Deliberately small: jobs live in memory, with each job's state also written to
 its folder so a restarted server still lists finished work. No database, no
@@ -31,17 +33,26 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..config import settings
+from ..duration.calibrate import calibrated_rate
+from ..duration.model import voice_key
 from ..media.probe import probe
 from ..parsing.parser import parse_script
 from ..pipeline import store
-from ..pipeline.registry import ALIGNERS, TRANSLATORS, TTS_PROVIDERS
+from ..pipeline.registry import ALIGNERS, TRANSLATORS, TTS_PROVIDERS, is_stub
 from ..pipeline.runner import STAGES, PipelineConfig, build_providers, run_segments, run_track
+from ..schemas import AudioAsset, TranslatedSegment
+from ..translate.indictrans import FLORES_CODES
 from ..translate.manual import ManualTranslator
+from ..translate.prompts import language_name
+from ..tts import sarvam
+from .library import Library
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.path.dirname(os.path.dirname(HERE))
 SAMPLES = os.path.join(os.path.dirname(BACKEND), "samples")
 JOBS_DIR = os.path.abspath(os.path.join(settings().out_dir, "jobs"))
+LIBRARY = Library(SAMPLES, os.path.join(settings().out_dir, "thumbs"))
+FEED_LENGTH = 8
 
 app = FastAPI(title="Spoken Tutorial dubbing")
 
@@ -58,6 +69,9 @@ class Job:
     tts: str
     aligner: str
     video_name: str | None = None
+    video_path: str | None = None
+    title: str | None = None
+    voice: str | None = None
     pace: float = 1.0
     status: str = "queued"  # queued | running | done | error
     stage: str | None = None
@@ -65,7 +79,11 @@ class Job:
     stubs: list[str] = field(default_factory=list)
     error: str | None = None
     created: float = field(default_factory=time.time)
+    started: float | None = None
     finished: float | None = None
+    feed: list[dict] = field(default_factory=list)
+    """The latest lines translated or voiced, newest last - the live view."""
+    summary: dict = field(default_factory=dict)
 
     @property
     def folder(self) -> str:
@@ -99,6 +117,11 @@ def _restore_jobs() -> None:
             continue
         if job.status in {"queued", "running"}:
             job.status, job.error = "error", "server restarted during the run"
+        if not job.title:  # jobs from before titles were recorded
+            job.title = next(
+                (t.title for t in LIBRARY.tutorials() if os.path.basename(t.script) == job.script_name),
+                os.path.splitext(job.script_name)[0],
+            )
         JOBS[job.id] = job
         LOCKS[job.id] = threading.Lock()
 
@@ -113,20 +136,67 @@ def _job(job_id: str) -> Job:
     return job
 
 
+def _summarise(track) -> dict:
+    """The headline numbers the history list and result screen show."""
+    translations = track.translations
+    qa = track.qa
+    return {
+        "segments": len(translations),
+        "on_time": sum(1 for r in qa.segments if r.within_drift) if qa else None,
+        "kept": sum(1 for t in translations if t.stage == "draft"),
+        "condensed": sum(1 for t in translations if t.stage == "shortened"),
+        "review": sum(1 for t in translations if not t.fitted),
+        "max_drift": qa.max_drift if qa else None,
+        "median_pause": qa.median_pause if qa else None,
+    }
+
+
 def _run(job: Job, config: PipelineConfig, script_path: str, duration: float | None) -> None:
-    def progress(stage: str, done: int, total: int) -> None:
+    sources: dict[str, str] = {}
+    texts: dict[str, str] = {}
+
+    def progress(stage: str, done: int, total: int, item=None) -> None:
         job.stage = stage
         job.progress[stage] = [done, total]
+        event = None
+        if isinstance(item, TranslatedSegment):
+            texts[item.segment_id] = item.text
+            event = {
+                "kind": "translated",
+                "id": item.segment_id,
+                "source": sources.get(item.segment_id, item.source_text),
+                "text": item.text,
+                "stage": item.stage,
+                "fitted": item.fitted,
+            }
+        elif isinstance(item, AudioAsset):
+            event = {
+                "kind": "voiced",
+                "id": item.segment_id,
+                "source": sources.get(item.segment_id, ""),
+                "text": texts.get(item.segment_id, ""),
+                "seconds": round(item.duration, 2),
+                "audio": _file_url(job, item.path),
+            }
+        if event is not None:
+            job.feed = (job.feed + [event])[-FEED_LENGTH:]
 
     with LOCKS[job.id]:
         job.status = "running"
+        job.started = time.time()
         job.save()
         try:
             script = parse_script(script_path, language="en", duration=duration)
+            sources.update({s.id: s.text for s in script.segments})
             progress("parse", len(script.segments), len(script.segments))
             providers = build_providers(config, script)
-            job.stubs = providers.stubs
-            run_track(script, config, progress=progress, providers=providers)
+            # Only the stages that produce the numbers; the manifest exporter is
+            # a stand-in for a later project format and changes nothing heard.
+            job.stubs = sorted(
+                p.name for p in (providers.translator, providers.tts, providers.aligner) if is_stub(p)
+            )
+            track = run_track(script, config, progress=progress, providers=providers)
+            job.summary = _summarise(track)
             job.status = "done"
         except Exception as exc:  # noqa: BLE001 - reported to the page, not swallowed
             traceback.print_exc()
@@ -144,10 +214,11 @@ def _save_upload(upload: UploadFile, folder: str) -> str:
 
 
 def _sample(name: str) -> str:
-    path = os.path.join(SAMPLES, os.path.basename(name))
-    if not os.path.exists(path):
-        raise HTTPException(400, f"no sample {name!r}")
-    return path
+    """A file inside the samples folder, by its path relative to it."""
+    try:
+        return LIBRARY.resolve(name)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 # -- endpoints -----------------------------------------------------------------
@@ -180,12 +251,59 @@ def health() -> dict:
 
 @app.get("/api/samples")
 def samples() -> dict:
-    if not os.path.isdir(SAMPLES):
-        return {"scripts": [], "videos": []}
-    names = sorted(os.listdir(SAMPLES))
+    """Every English script and video under samples/, by relative path."""
     return {
-        "scripts": [n for n in names if n.lower().endswith(".docx")],
-        "videos": [n for n in names if n.lower().endswith((".webm", ".mkv", ".mp4"))],
+        "scripts": [t.script for t in LIBRARY.tutorials()],
+        "videos": [v.replace(os.sep, "/") for v in LIBRARY.english_videos()],
+    }
+
+
+@app.get("/api/library")
+def library() -> dict:
+    """The tutorials ready to dub: each English script paired with its video."""
+    return {"tutorials": LIBRARY.as_dicts()}
+
+
+@app.get("/api/library/poster")
+def poster(video: str) -> FileResponse:
+    try:
+        path = LIBRARY.poster(video)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if not path:
+        raise HTTPException(404, "no poster")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@app.get("/api/library/video")
+def library_video(video: str) -> FileResponse:
+    try:
+        return FileResponse(LIBRARY.resolve(video))
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+def _language_codes() -> list[str]:
+    """Languages both the translator and the voice cover."""
+    return [c for c in FLORES_CODES if c != "en" and c in sarvam.LANGUAGE_CODES]
+
+
+@app.get("/api/voices")
+def voices() -> dict:
+    return {"default": settings().sarvam_speaker, "voices": sarvam.voices()}
+
+
+@app.get("/api/languages")
+def languages(voice: str | None = None, pace: float = 1.0) -> dict:
+    """Each target language, and whether this voice at this pace has been
+    measured in it - a job that has not runs the calibrate stage first."""
+    provider = f"sarvam:{settings().sarvam_tts_model}"
+    key = voice_key(provider, voice or settings().sarvam_speaker, pace)
+    return {
+        "languages": [
+            {"code": c, "name": language_name(c), "rate": calibrated_rate(key, c)}
+            for c in _language_codes()
+        ]
     }
 
 
@@ -211,6 +329,10 @@ def create_job(
 ) -> dict:
     if not 0.5 <= pace <= 2.0:
         raise HTTPException(400, "pace must be between 0.5 and 2.0")
+    if language not in _language_codes():
+        raise HTTPException(400, f"unsupported language {language!r}")
+    if voice and tts == "sarvam" and voice not in {v["id"] for v in sarvam.voices()}:
+        raise HTTPException(400, f"unknown voice {voice!r}")
     for value, table, kind in (
         (translator, TRANSLATORS, "translator"),
         (tts, TTS_PROVIDERS, "tts"),
@@ -243,10 +365,17 @@ def create_job(
 
     # Real audio needs the real aligner; the stub only makes sense for silence.
     aligner = aligner or ("clip-bounds" if tts == "silent" else "vad")
+    title = next(
+        (t.title for t in LIBRARY.tutorials() if sample_script and t.script == sample_script),
+        os.path.splitext(os.path.basename(script_path))[0],
+    )
     job = Job(
         id=job_id,
         script_name=os.path.basename(script_path),
         video_name=os.path.basename(video_path) if video_path else None,
+        video_path=video_path,
+        title=title,
+        voice=(voice or settings().sarvam_speaker) if tts == "sarvam" else None,
         language=language,
         translator=translator,
         tts=tts,
@@ -292,7 +421,7 @@ def get_track(job_id: str) -> dict:
     job = _job(job_id)
     if not os.path.exists(store.path_for(job.track_dir)):
         raise HTTPException(409, "the track is not ready yet")
-    script, track, _ = store.load(job.track_dir)
+    script, track, config = store.load(job.track_dir)
 
     translations = {t.segment_id: t for t in track.translations}
     audio = {a.segment_id: a for a in track.audio}
@@ -344,8 +473,23 @@ def get_track(job_id: str) -> dict:
             "mean_rate_ratio": track.qa.mean_rate_ratio,
             "audio_seconds": sum(a.duration for a in track.audio),
         }
+    original = f"/api/jobs/{job.id}/original" if _original_path(job) else None
     return {
         "job": asdict(job),
+        "original": original,
+        "settings": {
+            "language": language_name(job.language),
+            "translator": job.translator,
+            "tts": job.tts,
+            "model": settings().sarvam_tts_model if job.tts == "sarvam" else None,
+            "voice": job.voice,
+            "pace": job.pace,
+            "aligner": job.aligner,
+            "rate": round(config.rate_model.rate(job.language), 3),
+            "pause_reserve": config.rate_model.pause_reserve,
+            "llm": settings().sarvam_llm_model if "sarvam" in job.translator else None,
+            "mt": settings().indictrans_model if "indictrans" in job.translator else None,
+        },
         "duration": track.duration,
         "summary": summary,
         "exports": exports,
@@ -374,6 +518,31 @@ def regenerate_segment(job_id: str, segment_id: str, edit: SegmentEdit) -> dict:
             providers.translator = ManualTranslator({segment_id: edit.text}, previous)
         run_segments(script, track, [segment_id], config, providers=providers)
     return get_track(job_id)
+
+
+@app.get("/api/jobs/{job_id}/original")
+def get_original(job_id: str) -> FileResponse:
+    """The English video the job was dubbed from, for side-by-side viewing.
+
+    Only the path recorded at job creation is served, and only if it lies in
+    the job's own folder (an upload) or in samples/."""
+    path = _original_path(_job(job_id))
+    if path is None:
+        raise HTTPException(404, "no original video for this job")
+    return FileResponse(path)
+
+
+def _original_path(job: Job) -> str | None:
+    allowed = (job.folder + os.sep, os.path.abspath(SAMPLES) + os.sep)
+    if job.video_path:
+        path = os.path.abspath(job.video_path)
+        return path if path.startswith(allowed) and os.path.isfile(path) else None
+    # Jobs from before the path was recorded: find the sample by its name.
+    if job.video_name:
+        for video in LIBRARY.english_videos():
+            if os.path.basename(video) == job.video_name:
+                return LIBRARY.resolve(video)
+    return None
 
 
 @app.get("/api/jobs/{job_id}/files/{path:path}")

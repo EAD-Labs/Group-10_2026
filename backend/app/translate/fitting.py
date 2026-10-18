@@ -40,10 +40,10 @@ from dataclasses import dataclass, field
 from typing import Iterable, Protocol, runtime_checkable
 
 from ..duration.model import DRIFT_TOLERANCE, RateModel
-from ..duration.syllables import count_syllables
 from ..schemas import Segment, TranslatedSegment
 from .cache import TranslationCache
 from .llm import ChatModel, LLMError
+from .terms import has_placeholder
 from .prompts import (
     PROMPT_VERSION,
     build_edit_request,
@@ -168,14 +168,16 @@ class FittingTranslator:
         terms = segment.bold_terms
 
         def candidate(text: str, *, cached: bool = False, is_draft: bool = False) -> Attempt:
-            units = count_syllables(text)
+            units = round(rates.units(text, target_language))
             return Attempt(
                 text=text,
                 units=units,
                 predicted_duration=units / rates.rate(target_language),
                 from_cache=cached,
                 is_draft=is_draft,
-                missing=len(missing_terms(text, terms)),
+                # A placeholder that survived restore is as broken as a lost
+                # term: it would be read aloud as "TERMX21".
+                missing=len(missing_terms(text, terms)) + has_placeholder(text),
             )
 
         attempts: list[Attempt] = []

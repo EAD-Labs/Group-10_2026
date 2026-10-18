@@ -147,12 +147,25 @@ def restore(text: str, originals: list[str]) -> str:
     missing-term check then sends the segment to the LLM to repair."""
 
     def back(match: re.Match) -> str:
-        number = int(match.group(1))
+        digits = match.group(1)
+        number = int(digits)
         if 1 <= number <= len(originals):
             return originals[number - 1]
+        # A placeholder followed by a number in the source ("converted to
+        # TERMX2 1") can come back glued: "TERMX21". If a prefix of the digits
+        # is a real placeholder, the rest is the number that followed it.
+        for cut in range(len(digits) - 1, 0, -1):
+            head = int(digits[:cut])
+            if 1 <= head <= len(originals):
+                return f"{originals[head - 1]} {digits[cut:]}"
         return match.group(0)
 
     return _PLACEHOLDER.sub(back, _TRANSLITERATED.sub(back, text))
+
+
+def has_placeholder(text: str) -> bool:
+    """True if a placeholder survived restore - the line is not deliverable."""
+    return bool(_PLACEHOLDER.search(text) or _TRANSLITERATED.search(text))
 
 
 def fix_punctuation(source: str, output: str) -> str:

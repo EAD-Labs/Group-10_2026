@@ -1,7 +1,8 @@
 # Spoken Tutorial dubbing - backend
 
 Takes an English Spoken Tutorial timed script (and optionally its video) to a
-dubbed Tamil track that fits the original video's timing. **The English script
+dubbed track in Tamil - or Hindi, Marathi, Telugu, Kannada, Malayalam,
+Bengali, Gujarati, Punjabi or Odia - that fits the original video's timing. **The English script
 and video are the only inputs.** The client's human Tamil dub and script are
 used only as an evaluation baseline (tests, report comparisons, the optional
 `review.py --reference`), never by the pipeline itself:
@@ -33,13 +34,30 @@ uvicorn app.api.main:app --reload
 # open http://localhost:8000
 ```
 
-Pick a sample script (and video, if `samples/Overview-of-Synfig-English.webm`
-is present), choose providers, run. The page shows each stage's progress, then
-the dubbed video with Tamil subtitles, summary numbers, and every segment:
-English, IndicTrans2 draft, final Tamil, budget, measured audio and drift. Any
-segment can be rewritten by hand or redone, and only that segment is
-regenerated (HLD UC-03). The header shows which keys and models this machine
-has; with none of them the stub providers still run end to end.
+The main screen is only the dubbing itself:
+
+1. **Pick a tutorial.** Every English script under `samples/` (subfolders
+   included, `.docx` or `.odt`) is paired with its English video by title
+   (`app/api/library.py`) and shown as a card with a poster frame. The client's
+   Tamil script and dub are not offered - they are evaluation material. Or
+   upload a script and video.
+2. **Language, speaker, pace.** Ten languages; 37 Bulbul v3 voices (Sarvam's
+   recommended ones first, each marked male or female); pace 0.7-1.0. The
+   language hint says whether this voice has been measured at this pace - if
+   not, the run measures it first (see *Calibrating automatically*).
+3. **Watch it run.** A stepper (measure voice, translate & fit, voice, align,
+   fine-tune, mix) and a live feed of lines as they are translated - kept or
+   condensed - and then voiced, each playable.
+4. **The result.** The dub with subtitles, switchable to the **original**
+   at the same moment, or **side by side** in sync with either soundtrack;
+   four headline numbers; download.
+
+One click away: **Details** (every line - English, machine draft, final text,
+slot, measured speech, drift - editable and re-voiceable one at a time, HLD
+UC-03; the quality numbers explained; the settings and models used; the
+files), **History** (every previous dub), **System** (keys and models present;
+keys never reach the page). Translator, aligner and parallelism sit under
+*Advanced*; with no keys the stub providers still run end to end.
 
 ### The command line
 
@@ -68,7 +86,7 @@ declare `is_stub = True`; every run names the stubs still in the chain.
 | stage | real | stub |
 |---|---|---|
 | translate | `indictrans+sarvam` - IndicTrans2 drafts locally, sarvam-105b edits overruns; `sarvam` - LLM only; `indictrans+groq` / `groq` - the same on GPT-OSS 120B | `echo` |
-| synthesise | `sarvam` - Bulbul v2, with pace correction | `silent` |
+| synthesise | `sarvam` - Bulbul v3, with pace correction | `silent` |
 | align | `vad` - Step 1's speech detector | `clip-bounds` |
 | export | `srt`, `mixdown` (dub WAV + remuxed video) | `manifest` (stand-in for OTIO / Kdenlive) |
 
@@ -317,6 +335,28 @@ Two steps make "fits on paper" agree with "fits in the audio":
    tolerance). What still
    overruns is flagged on the segment: the text has to get shorter.
 
+### Calibrating automatically
+
+A voice speaks every language, at every pace, at its own rate. The first job
+that needs a voice/language/pace combination with no rate in
+`out/voice-rates.json` runs a `calibrate` stage before translating: 20
+length-stratified lines of **that job's own English script**, drafted by
+IndicTrans2 (drafts the translate stage needs anyway), voiced and measured.
+About 20 TTS calls, once per combination (`app/duration/calibrate.py`). So a
+new language, a female voice or a new pace is budgeted correctly with no
+manual step and no human translation involved.
+
+### What the voice is slow on: English terms and numbers
+
+Calibrated voices count speech in `spoken_units` (`app/duration/syllables.py`),
+not plain aksharas. Fitting clip span against (aksharas, Latin syllables,
+digits) over all 716 clips of the five LibreOffice tutorials gave 0.168 s per
+akshara, 0.234 s per Latin syllable and 0.443 s per digit: Bulbul slows down
+for on-screen English ("Bullets and Numbering") and reads numerals in full,
+which plain counting scored as nothing. Latin syllables therefore weigh 1.4
+aksharas and digits 2.6. The residual error per line fell from 0.71 s to
+0.55 s. The human-narrator model and the Step 1 analysis keep plain counts.
+
 ### Choosing the pace
 
 Bulbul v3 speaks Tamil at about 6.1 aksharas/s at its natural pace (1.0) -
@@ -335,16 +375,21 @@ through the embedded-clip windows, and writes `<lang>-dub.wav`. Given
 
 ## Known limitations
 
-- Numerals are the largest remaining error source in the duration model:
-  "Synfig version 1.0.2" counts as 4 syllables but takes 3.4 s to say. Bulbul
-  v3 has no numeral preprocessing, so how it reads them is up to the model.
-- Rates are calibrated from one script pair. Recalibrate as more arrive.
+- Numerals and English terms are weighted by a fit on Tamil (716 clips). The
+  one Hindi run measured English terms at 1.64x an akshara against Tamil's
+  1.45x; the shared 1.4 holds until more Hindi is fitted. Spelling acronyms
+  letter by letter ("MHRD") was tried and did not improve the fit.
+- Bold words in the script are kept in English as on-screen terms, including
+  ordinary words the author bolded ("table", "cursor"). Whether the client
+  wants those translated is a style decision to confirm.
 - Holds are not inserted at non-action gaps yet (`hold_after` is always 0).
 - Drift is measured per clip against its budget, not word-by-word against the
   video; that needs forced alignment (WhisperX / MFA).
 - Embedded clips carry the base video's (English) audio; a Tamil release needs
   the Tamil editions of those source tutorials.
-- Only the `Time | Narration` timed-script format is handled.
+- Only the `Time | Narration` timed-script format is handled, in Word
+  (.docx) or OpenDocument (.odt) files - detected by content, since some
+  client scripts are .odt files named .docx.
 - The UI is a single-user demo: jobs live in memory and in `out/jobs/`.
 
 ---
