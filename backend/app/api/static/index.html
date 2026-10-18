@@ -109,6 +109,9 @@ textarea { width:100%; min-height:64px; padding:6px; border:1px solid var(--acce
       <label>Translator <select name="translator" id="translator"></select></label>
       <label>Voice <select name="tts" id="tts"></select></label>
       <label>Duration (s, if no video) <input type="number" step="0.1" name="duration" value="663.2"></label>
+      <label>Speaking pace (1.0 = natural)
+        <select name="pace"><option>1.0</option><option>0.9</option><option>0.8</option><option>0.7</option></select>
+      </label>
       <label>Parallel calls <input type="number" name="workers" min="1" max="8" value="4"></label>
       <button class="primary" type="submit" id="run">Run pipeline</button>
     </form>
@@ -197,7 +200,7 @@ async function init() {
 
 function renderJobList(jobs) {
   $("#jobs").innerHTML = `<option value="">&mdash;</option>` + jobs.map((j) =>
-    `<option value="${j.id}">${new Date(j.created * 1000).toLocaleString()} · ${esc(j.script_name)} → ${j.language} · ${j.translator}/${j.tts} · ${j.status}</option>`).join("");
+    `<option value="${j.id}">${new Date(j.created * 1000).toLocaleString()} · ${esc(j.script_name)} → ${j.language} · ${j.translator}/${j.tts} · pace ${(j.pace ?? 1).toFixed(1)} · ${j.status}</option>`).join("");
 }
 
 $("#jobs").addEventListener("change", (e) => e.target.value && openJob(e.target.value));
@@ -240,7 +243,7 @@ async function poll(id) {
 
 function renderProgress(job) {
   $("#progressPanel").hidden = false;
-  $("#jobLabel").textContent = `· ${job.script_name} → ${job.language} · ${job.translator} / ${job.tts} / ${job.aligner} · ${job.status}`;
+  $("#jobLabel").textContent = `· ${job.script_name} → ${job.language} · ${job.translator} / ${job.tts} @ pace ${(job.pace ?? 1).toFixed(1)} / ${job.aligner} · ${job.status}`;
   $("#stages").innerHTML = state.stages.map((stage) => {
     const [done, total] = job.progress[stage] || [0, 0];
     const finished = job.status === "done" || (total > 0 && done >= total && stage !== job.stage) || (total > 0 && done >= total && job.status !== "running");

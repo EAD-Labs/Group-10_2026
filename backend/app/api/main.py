@@ -58,6 +58,7 @@ class Job:
     tts: str
     aligner: str
     video_name: str | None = None
+    pace: float = 1.0
     status: str = "queued"  # queued | running | done | error
     stage: str | None = None
     progress: dict[str, list[int]] = field(default_factory=dict)
@@ -206,7 +207,10 @@ def create_job(
     duration: float | None = Form(None),
     workers: int = Form(4),
     voice: str | None = Form(None),
+    pace: float = Form(1.0),
 ) -> dict:
+    if not 0.5 <= pace <= 2.0:
+        raise HTTPException(400, "pace must be between 0.5 and 2.0")
     for value, table, kind in (
         (translator, TRANSLATORS, "translator"),
         (tts, TTS_PROVIDERS, "tts"),
@@ -247,6 +251,7 @@ def create_job(
         translator=translator,
         tts=tts,
         aligner=aligner,
+        pace=pace,
     )
     config = PipelineConfig(
         language=language,
@@ -258,6 +263,7 @@ def create_job(
         voice=voice or None,
         max_workers=max(1, min(workers, 8)),
         video_path=video_path,
+        voice_pace=pace,
     )
     JOBS[job_id] = job
     LOCKS[job_id] = threading.Lock()

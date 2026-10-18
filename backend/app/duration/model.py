@@ -62,9 +62,12 @@ RATE_TOLERANCE = 0.10
 """Speaking rate must stay within +/-10% of the reference pace (HLD S14)."""
 
 
-def voice_key(provider: str, speaker: str | None) -> str:
-    """How a calibrated voice is named in VOICE_RATES_PATH."""
-    return f"{provider}/{speaker or 'default'}"
+def voice_key(provider: str, speaker: str | None, pace: float = 1.0) -> str:
+    """How a calibrated voice is named in VOICE_RATES_PATH.
+
+    The pace is part of the name: the same voice asked to speak at 0.8 is, for
+    budgeting purposes, a different and slower voice."""
+    return f"{provider}/{speaker or 'default'}@{pace:.2f}"
 
 
 @dataclass

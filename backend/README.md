@@ -1,7 +1,10 @@
 # Spoken Tutorial dubbing - backend
 
 Takes an English Spoken Tutorial timed script (and optionally its video) to a
-dubbed Tamil track that fits the original video's timing:
+dubbed Tamil track that fits the original video's timing. **The English script
+and video are the only inputs.** The client's human Tamil dub and script are
+used only as an evaluation baseline (tests, report comparisons, the optional
+`review.py --reference`), never by the pipeline itself:
 
 ```
 parse -> translate (IndicTrans2 draft, Sarvam LLM shortens) -> synthesise (Sarvam)
@@ -48,10 +51,10 @@ python -m app.run ../samples/Timed-script-sample-english.docx --language ta \
     --video ../samples/Overview-of-Synfig-English.webm --export srt manifest mixdown --workers 4
 
 # stubs only - no keys, no downloads
-python -m app.run ../samples/Tamil-script-sample.docx --language ta --duration 663.2
+python -m app.run ../samples/Timed-script-sample-english.docx --language ta --duration 663.2
 
 python -m app.cli ../samples/Timed-script-sample-english.docx --language en --duration 663.2
-python -m app.calibrate_voice --script ../samples/Tamil-script-sample.docx --language ta
+python -m app.calibrate_voice --script ../samples/Timed-script-sample-english.docx --paces 1.0 0.9 0.8 0.7
 python -m pytest tests
 ```
 
@@ -301,15 +304,26 @@ cached in `out/tts-cache/` by text, voice, pace and model.
 
 Two steps make "fits on paper" agree with "fits in the audio":
 
-1. **Calibrate the voice.** The rate model was measured on the client's human
-   narrator; a synthetic voice has its own pace. `python -m app.calibrate_voice`
-   synthesises the client's own Tamil lines, measures the speech with the Step
-   1 detector, and saves the voice's rate to `out/voice-rates.json`. Runs with
-   that voice then budget text at the rate it actually speaks.
+1. **Calibrate the voice, at the chosen pace.** The default rates were measured
+   on the English narrator; a synthetic voice has its own pace, and a different
+   one at every `pace` setting. `python -m app.calibrate_voice --paces 1.0 0.9
+   0.8 0.7` translates long lines of the ENGLISH script with our own IndicTrans2
+   drafter, synthesises them at each pace, measures the speech with the Step 1
+   detector, and saves each rate to `out/voice-rates.json`. A run at
+   `--pace 0.8` then budgets text at what the voice does at 0.8.
 2. **Correct the pace.** After synthesis, any clip whose measured speech
    overruns its budget by more than 250 ms is requested again at the pace
-   that would fit, capped at +10% (HLD S14's rate tolerance). What still
+   that would fit, capped at +10% of the track's base pace (HLD S14's rate
+   tolerance). What still
    overruns is flagged on the segment: the text has to get shorter.
+
+### Choosing the pace
+
+Bulbul v3 speaks Tamil at about 6.1 aksharas/s at its natural pace (1.0) -
+denser than the human dub the client found rushed. `--pace` (and the UI's pace
+field) slows the whole track; the cost is time per line, so more lines are
+shortened to fit. Which pace sounds right is the client's call, made by ear on
+full-length dubs at each setting.
 
 ## Mixdown - something to watch
 

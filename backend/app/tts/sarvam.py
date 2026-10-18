@@ -11,9 +11,10 @@ The clip's duration is MEASURED from the decoded audio, never assumed. The gap
 between what the duration model predicted and what the voice actually took is
 exactly what the QA report and the pace-correction step exist to act on.
 
-It accepts a `pace`, and says so (`supports_pace = True`), so the runner can
-re-request an overrunning clip slightly faster - within the HLD's +/-10% - before
-deciding the text has to change.
+It speaks at a base `pace` chosen for the whole track (1.0 is the voice's
+natural speed; slower is calmer and leaves less room for text), and accepts a
+per-clip `pace` so the runner can re-request an overrunning clip slightly
+faster - within +10% of the base - before deciding the text has to change.
 
 Clips are cached on disk by everything that would change the audio, so a
 re-run, or a reviewer fixing one segment, never re-pays for the other ninety-four.
@@ -80,8 +81,9 @@ class SarvamTTS:
         sample_rate: int = SAMPLE_RATE,
         cache_dir: str | None = DEFAULT_CACHE_DIR,
         timeout: float = 60.0,
-        max_retries: int = 5,
+        max_retries: int = 8,
         preprocess: bool = True,
+        pace: float = 1.0,
     ) -> None:
         config = settings()
         self._api_key = api_key if api_key is not None else config.sarvam_api_key
@@ -92,6 +94,7 @@ class SarvamTTS:
         self.timeout = timeout
         self.max_retries = max_retries
         self.preprocess = preprocess
+        self.pace = pace
         self.name = f"sarvam:{self.model}"
 
     @property
@@ -159,9 +162,10 @@ class SarvamTTS:
         *,
         out_path: str,
         voice: str | None = None,
-        pace: float = 1.0,
+        pace: float | None = None,
     ) -> AudioAsset:
         speaker = voice or self.speaker
+        pace = self.pace if pace is None else pace
         text = translated.text.strip()
         os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 

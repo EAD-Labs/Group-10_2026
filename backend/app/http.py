@@ -7,6 +7,7 @@ copy of the loop; this is that loop once.
 
 from __future__ import annotations
 
+import random
 import re
 import time
 from typing import Any, Callable, TypeVar
@@ -65,7 +66,10 @@ def post_with_retry(
 
     last_error = ""
     for attempt in range(max_retries):
-        wait = 2.0 * (attempt + 1)
+        # Exponential with jitter: a rate limit is shared by every worker, and
+        # workers retrying in lockstep arrive together and are refused together.
+        # Sarvam's 429 carries no Retry-After, so this is all there is to go on.
+        wait = min(2.0 * 2**attempt, MAX_WAIT) * random.uniform(0.75, 1.25)
         try:
             response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
         except httpx.HTTPError as exc:

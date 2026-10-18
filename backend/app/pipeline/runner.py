@@ -64,6 +64,10 @@ class PipelineConfig:
     video_path: str | None = None
     """The base video, when known - the mixdown exporter muxes the dub into it
     and lifts the embedded clips' original audio from it."""
+    voice_pace: float = 1.0
+    """The speaking pace for the whole track, for TTS providers that take one
+    (1.0 = the voice's natural speed). Slower is calmer and leaves less time
+    per line, so more text is shortened to fit."""
     use_voice_rates: bool = True
     """Budget at the TTS voice's calibrated rate (app.calibrate_voice) when one
     has been measured, rather than the human narrator's."""
@@ -104,9 +108,12 @@ def build_providers(config: PipelineConfig, script: ParsedScript | None = None) 
         aligner=get_aligner(config.aligner, **options.get("aligner", {})),
         exporters=get_exporters(config.exporters, exporter_options),
     )
+    if getattr(providers.tts, "supports_pace", False):
+        providers.tts.pace = config.voice_pace
     if config.use_voice_rates and not is_stub(providers.tts):
         speaker = config.voice or getattr(providers.tts, "speaker", None)
-        config.rate_model = RateModel.for_voice(voice_key(providers.tts.name, speaker))
+        pace = getattr(providers.tts, "pace", 1.0)
+        config.rate_model = RateModel.for_voice(voice_key(providers.tts.name, speaker, pace))
     return providers
 
 
@@ -230,12 +237,14 @@ def fit_audio(
 
     The duration model predicts from text; the voice decides. A clip whose
     measured speech overruns its speaking budget by more than the drift
-    tolerance is re-requested at the pace that would fit, capped at +10%. What
+    tolerance is re-requested at the pace that would fit, capped at +10% of the
+    track's base pace (an 0.8 track is corrected to at most 0.88). What
     still overruns after that is reported, not hidden: it needs shorter text.
 
     Only providers that declare `supports_pace` take part; a stub's clip is
     its prediction, so there is nothing to correct.
     """
+    base = getattr(providers.tts, "pace", 1.0)
     if not getattr(providers.tts, "supports_pace", False):
         progress("fit_audio", 1, 1)
         return audio, alignments
@@ -251,7 +260,7 @@ def fit_audio(
 
     def redo(translated: TranslatedSegment) -> tuple[AudioAsset, AlignmentResult]:
         actual = by_alignment[translated.segment_id].speech_duration
-        pace = pace_for(actual, translated.budget)
+        pace = base * pace_for(actual, translated.budget)
         asset = providers.tts.synthesize(
             translated,
             out_path=_clip_path(config.audio_dir, translated.segment_id),

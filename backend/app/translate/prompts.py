@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 """Bumped whenever the wording below changes. It forms part of the cache key,
 so an edit here correctly misses the cache instead of returning text that an
 earlier instruction produced."""
@@ -23,11 +23,13 @@ LANGUAGE_NAMES = {"ta": "Tamil", "hi": "Hindi", "mr": "Marathi", "en": "English"
 
 UNIT_NAMES = {"ta": "aksharas", "hi": "aksharas", "mr": "aksharas", "en": "syllables"}
 
-UNITS_PER_WORD = {"ta": 2.75, "hi": 2.6, "mr": 2.6, "en": 1.57}
-"""Median units per word. Tamil (2.75) and English (1.57) are measured from the
-client's Synfig scripts; Hindi and Marathi are estimates until a matched pair
-arrives for them. Used only to give the model a rough word count alongside the
-authoritative unit budget - models control word counts better than syllables."""
+UNITS_PER_WORD = {"ta": 3.11, "hi": 2.6, "mr": 2.6, "en": 1.57}
+"""Median units per word. Tamil (3.11) is measured on our own IndicTrans2
+drafts of the English Synfig script - Tamil-script words only, on-screen terms
+excluded - and English (1.57) on that English script. No human translation is
+an input. Hindi and Marathi are estimates until drafts exist for them. Used
+only to give the model a rough word count alongside the authoritative unit
+budget - models control word counts better than syllables."""
 
 
 def language_name(code: str) -> str:

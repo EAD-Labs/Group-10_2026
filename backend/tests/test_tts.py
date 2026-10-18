@@ -213,3 +213,50 @@ def test_an_overrunning_clip_is_resynthesised_faster_once():
     assert all(abs(p - 1.08) < 1e-3 for p in corrected)  # within frame rounding
     qa = {row.segment_id: row for row in track.qa.segments}
     assert all(qa[t.segment_id].within_drift for t in over)
+
+
+# -- base pace -----------------------------------------------------------------
+
+
+def test_the_base_pace_is_sent_and_correction_is_relative_to_it():
+    """An 0.8 track asks for every clip at 0.8, and an overrunning clip is
+    corrected to at most 0.88 - +10% of the chosen pace, not of 1.0."""
+    fake = _FakeSarvam(seconds=1.0)
+    restore = _patched(fake)
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            tts = SarvamTTS(api_key="k", cache_dir=None, pace=0.8)
+            tts.synthesize(_translated(), out_path=os.path.join(out, "a.wav"))
+            tts.synthesize(_translated(), out_path=os.path.join(out, "b.wav"), pace=0.88)
+    finally:
+        restore()
+    assert [r["json"]["pace"] for r in fake.requests] == [0.8, 0.88]
+
+    voice = _SlowVoice()
+    voice.pace = 1.0
+    script = parse_script(ENGLISH_SCRIPT, language="en", duration=VIDEO_DURATION)
+    registry.TTS_PROVIDERS["slow-voice"] = lambda: voice
+    try:
+        with tempfile.TemporaryDirectory() as out:
+            run_track(script, PipelineConfig(language="en", out_dir=out, tts="slow-voice",
+                                             voice_pace=0.8))
+    finally:
+        del registry.TTS_PROVIDERS["slow-voice"]
+    assert voice.pace == 0.8
+    corrected = [p for p in voice.paces if p != 1.0]
+    assert corrected and all(abs(p - 0.8 * 1.08) < 1e-3 for p in corrected)
+
+
+def test_calibrated_rates_are_looked_up_for_the_tracks_pace():
+    import json
+
+    from app.duration.model import RateModel, voice_key
+
+    with tempfile.TemporaryDirectory() as out:
+        path = os.path.join(out, "rates.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump({voice_key("sarvam:bulbul:v3", "shubh", 0.8): {"ta": 4.9},
+                       voice_key("sarvam:bulbul:v3", "shubh", 1.0): {"ta": 6.1}}, handle)
+        slow = RateModel.for_voice(voice_key("sarvam:bulbul:v3", "shubh", 0.8), path)
+        natural = RateModel.for_voice(voice_key("sarvam:bulbul:v3", "shubh"), path)
+    assert slow.rate("ta") == 4.9 and natural.rate("ta") == 6.1

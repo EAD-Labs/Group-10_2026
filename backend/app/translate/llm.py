@@ -193,6 +193,7 @@ class SarvamChat(OpenAICompatibleChat):
     def __init__(self, model: str | None = None, **options) -> None:
         options.setdefault("max_tokens", 800)
         options.setdefault("reasoning_effort", None)
+        options.setdefault("max_retries", 8)  # Sarvam's 429s are bursty; see http.py
         super().__init__(model or settings().sarvam_llm_model, **options)
 
     def _configured_key(self) -> str:

@@ -51,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--voice", default=None)
     parser.add_argument("--max-attempts", type=int, default=None,
                         help="rephrasing rounds before a segment is escalated")
+    parser.add_argument("--pace", type=float, default=1.0,
+                        help="speaking pace for the whole track (1.0 = natural; TTS "
+                             "providers that support it)")
     parser.add_argument("--workers", type=int, default=1,
                         help="concurrent provider calls in translate/synthesize")
     args = parser.parse_args(argv)
@@ -76,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         rate_model=RateModel(),
         provider_options=provider_options,
         max_workers=args.workers,
+        voice_pace=args.pace,
         video_path=args.video,
     )
 
