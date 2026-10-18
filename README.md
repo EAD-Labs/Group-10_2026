@@ -206,8 +206,6 @@ The suite runs offline, using stand-in providers.
 
 - **Keep runs to one at a time on a laptop.** The translation model uses about 1 GB of
   memory while it runs.
-- New lines need internet access and Sarvam credits. Cached results replay offline.
 - Lines that couldn't be fitted, that overran, or that lost an on-screen term are marked
   **to review** in Details. Expect a handful per tutorial.
-- The client's Tamil script and dub in `samples/` are used only to evaluate the pipeline,
-  never as input.
+
