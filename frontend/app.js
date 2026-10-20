@@ -71,7 +71,26 @@ function renderTutorials() {
       <div class="meta"><div class="title">Upload your own</div><div class="sub">English script + video</div></div>
     </button>`;
   $("#uploadBox").hidden = !S.upload;
+  renderPreview();
 }
+
+// The English original, playable before dubbing: a sample streams from the
+// server, an upload plays straight from the chosen file without being sent.
+function renderPreview() {
+  const t = S.upload ? null : S.tutorials.find((x) => x.id === S.selected);
+  const file = S.upload ? $("#uploadVideo").files[0] : null;
+  const key = file ? `file:${file.name}:${file.size}` : t?.video || "";
+  if (key === S.previewKey) return;  // re-rendering the cards must not restart playback
+  S.previewKey = key;
+  const player = $("#previewVideo");
+  player.pause();
+  if (S.previewUrl) { URL.revokeObjectURL(S.previewUrl); S.previewUrl = null; }
+  if (file) S.previewUrl = URL.createObjectURL(file);
+  const src = file ? S.previewUrl : t?.video ? `/api/library/video?video=${encodeURIComponent(t.video)}` : "";
+  if (src) player.src = src; else player.removeAttribute("src");
+  $("#preview").hidden = !src;
+}
+$("#uploadVideo").addEventListener("change", renderPreview);
 
 $("#tutorials").addEventListener("click", (e) => {
   const card = e.target.closest("[data-tut]");
@@ -165,7 +184,7 @@ $("#anotherBtn").addEventListener("click", showSetup);
 
 function openJob(id) {
   history.replaceState(null, "", `?job=${id}`);
-  clearInterval(S.timer); stopPlayers();
+  clearInterval(S.timer); stopPlayers(); $("#previewVideo").pause();
   S.track = null; S.job = null; S.view = "dubbed"; S.hear = "dubbed";
   $("#setup").hidden = true; $("#jobView").hidden = false;
   $("#running").hidden = false; $("#result").hidden = true;

@@ -64,6 +64,8 @@ main { max-width:1120px; margin:0 auto; padding:28px 16px 80px; }
 .upload-box { display:grid; gap:10px; grid-template-columns:1fr 1fr; padding:16px; margin:-12px 0 26px; }
 .upload-box label { display:grid; gap:6px; font-size:13px; color:var(--muted); }
 @media (max-width:640px) { .upload-box { grid-template-columns:1fr; } }
+.preview { overflow:hidden; background:#000; margin:-12px 0 26px; }
+.preview video { width:100%; display:block; max-height:60vh; background:#000; }
 
 /* controls */
 .controls { display:grid; grid-template-columns:1fr 1fr 1.3fr; gap:16px; padding:20px; align-items:start; }
